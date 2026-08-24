@@ -1,0 +1,15 @@
+[package]
+name        = "nostr-remote-signer-core"
+description = "Protocol core for a NIP-46 remote signer: request model, policy trait, audit sink."
+license     = "Apache-2.0"
+version.workspace      = true
+edition.workspace      = true
+rust-version.workspace = true
+repository.workspace   = true
+
+[dependencies]
+nostr      = { workspace = true }
+serde      = { workspace = true }
+serde_json = { workspace = true }
+thiserror  = { workspace = true }
+tracing    = { workspace = true }

@@ -1,0 +1,22 @@
+[package]
+name        = "nostr-remote-signer"
+description = "NIP-46 remote signer daemon with key custody, policy enforcement and audit."
+license     = "AGPL-3.0-or-later"
+version.workspace      = true
+edition.workspace      = true
+rust-version.workspace = true
+repository.workspace   = true
+
+[[bin]]
+name = "bunkerd"
+path = "src/main.rs"
+
+[dependencies]
+nostr-remote-signer-core = { path = "../nostr-remote-signer-core", version = "0.1.0" }
+nostr                    = { workspace = true }
+nostr-connect            = { workspace = true }
+tokio                    = { workspace = true }
+anyhow                   = { workspace = true }
+tracing                  = { workspace = true }
+tracing-subscriber       = { workspace = true }
+zeroize                  = { workspace = true }

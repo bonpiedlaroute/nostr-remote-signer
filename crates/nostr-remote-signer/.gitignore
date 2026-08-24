@@ -1,0 +1,10 @@
+/target
+**/*.rs.bk
+
+# secrets — never commit
+.env
+*.key
+*.nsec
+*.enc
+*.ncryptsec
+audit.log
