@@ -790,6 +790,7 @@ dependencies = [
  "nostr",
  "nostr-connect",
  "nostr-remote-signer-core",
+ "nostr-sdk",
  "tokio",
  "tracing",
  "tracing-subscriber",

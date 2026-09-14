@@ -8,3 +8,4 @@
 *.enc
 *.ncryptsec
 audit.log
+.DS_Store
