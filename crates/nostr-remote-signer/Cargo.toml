@@ -20,6 +20,3 @@ anyhow                   = { workspace = true }
 tracing                  = { workspace = true }
 tracing-subscriber       = { workspace = true }
 zeroize                  = { workspace = true }
-
-[dev-dependencies]
-nostr-sdk = { workspace = true }

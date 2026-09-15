@@ -10,7 +10,6 @@ repository   = "https://github.com/bonpiedlaroute/nostr-remote-signer"
 
 [workspace.dependencies]
 nostr              = { version = "0.45", features  = ["std", "os-rng", "nip46"] }
-nostr-sdk          = "0.45"
 nostr-connect      = "0.45"
 tokio              = { version = "1", features = ["macros", "rt-multi-thread", "signal", "sync", "time"] }
 anyhow             = "1"

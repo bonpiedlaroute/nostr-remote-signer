@@ -7,8 +7,8 @@ use nostr_connect::prelude::*;
 /// Bunker transport relay.
 ///
 /// must be a third-party relay without authentication.`relay.nsec.app` is dedicated to
-/// NIP-46 (kind 24133); `wss://relay.damus.io`is the alternative keycast uses
-const RELAY: &str = "wss://relay.damus.io";
+/// NIP-46 (kind 24133); 
+const RELAY: &str = "wss://nos.lol";
 
 #[tokio::main]
 async fn main() -> Result<()> {
