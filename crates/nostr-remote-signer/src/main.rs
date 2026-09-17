@@ -7,8 +7,15 @@ use nostr_connect::prelude::*;
 /// Bunker transport relay.
 ///
 /// must be a third-party relay without authentication.`relay.nsec.app` is dedicated to
-/// NIP-46 (kind 24133); 
+/// NIP-46 (kind 24133);
 const RELAY: &str = "wss://nos.lol";
+
+fn key_or_generate(var: &str) -> Result<Keys> {
+    match std::env::var(var) {
+        Ok(nsec) => Ok(Keys::parse(&nsec)?),
+        Err(_) => Ok(Keys::generate()),
+    }
+}
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -21,7 +28,10 @@ async fn main() -> Result<()> {
 
     //`signer`: NIP-46 trasnport idenity the one adevertised in the bunker:// URI
     //`user`: identity we sign on behalf of
-    let keys = NostrConnectKeys::new(Keys::generate(), Keys::generate());
+    let keys = NostrConnectKeys::new(
+        key_or_generate("BUNKER_SIGNER_NSEC")?,
+        key_or_generate("BUNKER_USER_NSEC")?,
+    );
     let user_public_key = keys.user.public_key();
 
     let signer = NostrConnectRemoteSigner::new(keys, [RELAY], None, None)?;
