@@ -9,3 +9,6 @@
 *.ncryptsec
 audit.log
 .DS_Store
+
+# sealed keys: encrypted, but never publish them
+*.sealed.json
