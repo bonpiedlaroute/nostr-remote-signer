@@ -12,3 +12,6 @@ audit.log
 
 # sealed keys: encrypted, but never publish them
 *.sealed.json
+
+# local operator policy - the committed template is policy.example.json
+policy.json

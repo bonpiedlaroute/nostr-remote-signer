@@ -1,0 +1,8 @@
+{
+  "allowed_methods": ["connect", "get_public_key", "sign_event", "ping"],
+  "allowed_kinds": [9, 27235],
+  "rate_limit": {
+    "per_caller": { "burst": 20, "per_second": 2.0 },
+    "global": { "burst": 100, "per_second": 10.0 }
+  }
+}

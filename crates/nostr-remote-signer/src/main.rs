@@ -1,14 +1,19 @@
 //! A NIP-46 bunker with envelope-encrypted key custody.
 //!
-//! Starts, prints its `bunker://...` URI, serves NIP-46 requests, approving everything.
-//! Policy and audit arrive in block C1.
+//! Starts, prints its `bunker://...` URI, and serves NIP-46 requests under a default-deny
+//! policy. Every decision — approved or not — leaves one line in an append-only journal.
 //!
 //! Both identities are opened from sealed files at boot: ONE call to the root of trust,
 //! and no secret in clear on disk.
 
+use std::sync::Arc;
+
 use anyhow::{Context, Result};
 use nostr_connect::prelude::*;
+use nostr_remote_signer::actions::PolicyActions;
+use nostr_remote_signer::audit_log::audit_channel;
 use nostr_remote_signer::hardening;
+use nostr_remote_signer::policy::Policy;
 use nostr_remote_signer::sealed::SealedKey;
 use nostr_remote_signer::unwrap::passphrase::PassphraseUnwrapper;
 use nostr_remote_signer_core::KeyUnwrapper;
@@ -20,6 +25,10 @@ use nostr_remote_signer_core::KeyUnwrapper;
 /// 2026-09-15: nos.lol and nostr.mom answer 101; relay.damus.io answers 503;
 /// relay.nsec.app is down.
 const RELAY: &str = "wss://nos.lol";
+
+/// Pending journal records before the writer is considered behind. Losses beyond that are
+/// counted and written as an `audit_gap` line, never silently dropped.
+const AUDIT_QUEUE: usize = 1024;
 
 /// Open a sealed key. `var` overrides `default`, so a deployment can place the files
 /// wherever it likes without a config format.
@@ -59,6 +68,20 @@ async fn main() -> Result<()> {
     );
     let user_public_key = keys.user.public_key();
 
+    // Default-deny policy. No policy file, no daemon: refusing to start beats approving
+    // everything by accident.
+    let policy_path = std::env::var("BUNKER_POLICY").unwrap_or_else(|_| "policy.json".into());
+    let policy = Arc::new(Policy::load(&policy_path)?);
+
+    // Journal: the signing path only ever does a non-blocking try_send; a dedicated thread
+    // owns the file and fsyncs every batch.
+    let audit_path = std::env::var("BUNKER_AUDIT_LOG").unwrap_or_else(|_| "audit.log".into());
+    let (audit, receiver) = audit_channel(AUDIT_QUEUE);
+    let writer = receiver
+        .spawn_writer(&audit_path)
+        .with_context(|| format!("cannot open audit log at {audit_path}"))?;
+
+    let actions = PolicyActions::new(policy, audit);
     let signer = NostrConnectRemoteSigner::new(keys, [RELAY], None, None)?;
 
     println!("\nbunker URI:\n {}\n", signer.bunker_uri());
@@ -69,30 +92,26 @@ async fn main() -> Result<()> {
     println!("transport relay                  : {RELAY}");
     println!("root of trust                    : {}\n", unwrapper.name());
     println!(
-        "memory locked / core dumps off   : {} / {}\n",
+        "memory locked / core dumps off   : {} / {}",
         hardening.memory_locked, hardening.core_dumps_disabled
     );
+    println!("policy                           : {policy_path}");
+    println!("audit log                        : {audit_path}\n");
 
     tracing::info!("bunker listening - Ctrl-C to stop");
 
     tokio::select! {
-        res = signer.serve(ApproveAll) => res?,
+        res = signer.serve(actions) => res?,
         _ = tokio::signal::ctrl_c() => tracing::info!("shutdown requested"),
     }
 
-    Ok(())
-}
-
-/// Approves everything. The real policy arrives in C1.
-struct ApproveAll;
-
-impl NostrConnectSignerActions for ApproveAll {
-    /// Crate contract: **synchronous** signature, so never do I/O here.
-    ///
-    /// We log the caller and the method, never the content. `method()` and the `Display`
-    /// impl of `NostrConnectMethod` already exist in `nostr`: nothing to rewrite.
-    fn approve(&self, public_key: &PublicKey, req: &NostrConnectRequest) -> bool {
-        tracing::info!(caller = %public_key, method = %req.method(), "request approved");
-        true
+    // `actions` — and with it the last journal sender — was dropped with the `serve`
+    // future above, which closes the channel. Joining guarantees the final batch is on disk.
+    match writer.join() {
+        Ok(Ok(())) => tracing::info!("audit log flushed"),
+        Ok(Err(e)) => tracing::error!(error = %e, "audit writer failed"),
+        Err(_) => tracing::error!("audit writer panicked"),
     }
+
+    Ok(())
 }
