@@ -8,6 +8,7 @@
 
 use anyhow::{Context, Result};
 use nostr_connect::prelude::*;
+use nostr_remote_signer::hardening;
 use nostr_remote_signer::sealed::SealedKey;
 use nostr_remote_signer::unwrap::passphrase::PassphraseUnwrapper;
 use nostr_remote_signer_core::KeyUnwrapper;
@@ -42,6 +43,9 @@ async fn main() -> Result<()> {
         )
         .init();
 
+    // Before anything touches a secret: no swap, no core dumps.
+    let hardening = hardening::harden();
+
     // The root of trust. Chosen HERE, by process configuration — never by the sealed
     // file, which an attacker with disk write access could otherwise downgrade.
     let unwrapper = PassphraseUnwrapper::from_env()?;
@@ -64,6 +68,10 @@ async fn main() -> Result<()> {
     );
     println!("transport relay                  : {RELAY}");
     println!("root of trust                    : {}\n", unwrapper.name());
+    println!(
+        "memory locked / core dumps off   : {} / {}\n",
+        hardening.memory_locked, hardening.core_dumps_disabled
+    );
 
     tracing::info!("bunker listening - Ctrl-C to stop");
 

@@ -2072,6 +2072,7 @@ dependencies = [
  "aws-sdk-kms",
  "base64",
  "chacha20poly1305",
+ "libc",
  "nostr",
  "nostr-connect",
  "nostr-remote-signer-core",

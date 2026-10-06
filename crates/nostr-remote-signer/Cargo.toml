@@ -31,6 +31,7 @@ serde                    = { workspace = true }
 serde_json               = { workspace = true }
 aws-sdk-kms              = { workspace = true, optional = true }
 aws-config               = { workspace = true, optional = true }
+libc                     = { workspace = true }
 
 [dev-dependencies]
 reqwest = { workspace = true }
@@ -39,3 +40,7 @@ sha2    = { workspace = true }
 [features]
 default = []
 aws     = ["dep:aws-sdk-kms", "dep:aws-config"]
+
+[[bin]]
+name = "leak_probe"
+path = "src/bin/leak_probe.rs"
