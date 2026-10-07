@@ -1,9 +1,7 @@
 //! The append-only journal: a bounded channel feeding a dedicated writer thread.
 //!
-//! Keycast removed its per-operation log partly for performance: it did "DB query +
-//! UPDATE + INSERT" on the signing path. Here the signing path does one non-blocking
-//! `try_send` and nothing else. The writer can therefore afford what the signing path
-//! never could: an fsync after every batch.
+//! The signing path does one non-blocking `try_send` and nothing else, so the writer can
+//! afford an fsync after every batch.
 
 use std::fs::{File, OpenOptions};
 use std::io::{self, Write};
