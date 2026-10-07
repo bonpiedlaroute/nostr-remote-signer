@@ -1,22 +1,25 @@
-//! A NIP-46 bunker with envelope-encrypted key custody.
+//! A NIP-46 bunker with envelope-encrypted key custody, serving several identities.
 //!
-//! Starts, prints its `bunker://...` URI, and serves NIP-46 requests under a default-deny
-//! policy. Every decision — approved or not — leaves one line in an append-only journal.
-//!
-//! Both identities are opened from sealed files at boot: ONE call to the root of trust,
-//! and no secret in clear on disk.
+//! Every decision leaves one line in an append-only journal. Agents are revoked at
+//! runtime: edit the agents file, then SIGHUP.
 
+use std::collections::HashSet;
 use std::sync::Arc;
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
 use nostr_connect::prelude::*;
-use nostr_remote_signer::actions::PolicyActions;
+use nostr_remote_signer::access::{self, Agents};
+use nostr_remote_signer::actions::{Gate, PolicyActions};
 use nostr_remote_signer::audit_log::audit_channel;
 use nostr_remote_signer::hardening;
 use nostr_remote_signer::policy::Policy;
 use nostr_remote_signer::sealed::SealedKey;
 use nostr_remote_signer::unwrap::passphrase::PassphraseUnwrapper;
 use nostr_remote_signer_core::KeyUnwrapper;
+use serde::Deserialize;
+use tokio::signal::unix::{SignalKind, signal};
+use tokio::sync::watch;
+use tokio::task::JoinSet;
 
 /// Bunker transport relay.
 ///
@@ -30,11 +33,21 @@ const RELAY: &str = "wss://nos.lol";
 /// counted and written as an `audit_gap` line, never silently dropped.
 const AUDIT_QUEUE: usize = 1024;
 
-/// Open a sealed key. `var` overrides `default`, so a deployment can place the files
-/// wherever it likes without a config format.
-async fn load_sealed(var: &str, default: &str, unwrapper: &dyn KeyUnwrapper) -> Result<Keys> {
-    let path = std::env::var(var).unwrap_or_else(|_| default.to_string());
-    let raw = std::fs::read_to_string(&path)
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct IdentityFiles {
+    /// Transport key, the one in the bunker:// URI.
+    signer: String,
+    /// Custodied key, the one that signs.
+    user: String,
+}
+
+fn env_or(var: &str, default: &str) -> String {
+    std::env::var(var).unwrap_or_else(|_| default.to_string())
+}
+
+async fn load_sealed(path: &str, unwrapper: &dyn KeyUnwrapper) -> Result<Keys> {
+    let raw = std::fs::read_to_string(path)
         .with_context(|| format!("cannot read sealed key at {path}"))?;
     let sealed: SealedKey =
         serde_json::from_str(&raw).with_context(|| format!("{path} is not a valid sealed key"))?;
@@ -43,12 +56,41 @@ async fn load_sealed(var: &str, default: &str, unwrapper: &dyn KeyUnwrapper) -> 
     Ok(Keys::new(sealed.open(unwrapper).await?))
 }
 
+async fn load_identities(
+    path: &str,
+    unwrapper: &dyn KeyUnwrapper,
+) -> Result<Vec<NostrConnectKeys>> {
+    let raw = std::fs::read_to_string(path)
+        .with_context(|| format!("cannot read identities at {path}"))?;
+    let files: Vec<IdentityFiles> =
+        serde_json::from_str(&raw).with_context(|| format!("invalid identities at {path}"))?;
+    if files.is_empty() {
+        bail!("{path} lists no identity");
+    }
+
+    let mut seen = HashSet::new();
+    let mut identities = Vec::with_capacity(files.len());
+    for f in files {
+        let keys = NostrConnectKeys::new(
+            load_sealed(&f.signer, unwrapper).await?,
+            load_sealed(&f.user, unwrapper).await?,
+        );
+        // Two serve loops on one transport key would both answer.
+        if !seen.insert(keys.signer.public_key()) || !seen.insert(keys.user.public_key()) {
+            bail!("{path}: a key is used twice ({} / {})", f.signer, f.user);
+        }
+        identities.push(keys);
+    }
+    Ok(identities)
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "bunkerd=info,nostr_connect=info,nostr_sdk=warn".into()),
+            tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| {
+                "bunkerd=info,nostr_remote_signer=info,nostr_connect=info,nostr_sdk=warn".into()
+            }),
         )
         .init();
 
@@ -59,59 +101,81 @@ async fn main() -> Result<()> {
     // file, which an attacker with disk write access could otherwise downgrade.
     let unwrapper = PassphraseUnwrapper::from_env()?;
 
-    // `signer`: NIP-46 transport identity, the one in the bunker:// URI. Sealed too, so
-    //           the URI survives a restart and clients need no reconfiguration.
-    // `user`:   the custodied identity — the one that actually signs for the agent.
-    let keys = NostrConnectKeys::new(
-        load_sealed("BUNKER_SEALED_SIGNER", "signer.sealed.json", &unwrapper).await?,
-        load_sealed("BUNKER_SEALED_KEY", "identity.sealed.json", &unwrapper).await?,
-    );
-    let user_public_key = keys.user.public_key();
+    let identities_path = env_or("BUNKER_IDENTITIES", "identities.json");
+    let identities = load_identities(&identities_path, &unwrapper).await?;
+    let served: HashSet<PublicKey> = identities.iter().map(|k| k.user.public_key()).collect();
 
     // Default-deny policy. No policy file, no daemon: refusing to start beats approving
     // everything by accident.
-    let policy_path = std::env::var("BUNKER_POLICY").unwrap_or_else(|_| "policy.json".into());
-    let policy = Arc::new(Policy::load(&policy_path)?);
+    let policy_path = env_or("BUNKER_POLICY", "policy.json");
+    let policy = Policy::load(&policy_path)?;
+
+    let agents_path = env_or("BUNKER_AGENTS", "agents.json");
+    let (agents_tx, agents_rx) = watch::channel(Arc::new(Agents::load(&agents_path, &served)?));
+    // Before serving: the default action of SIGHUP kills the process.
+    let mut hangup = signal(SignalKind::hangup())?;
 
     // Journal: the signing path only ever does a non-blocking try_send; a dedicated thread
     // owns the file and fsyncs every batch.
-    let audit_path = std::env::var("BUNKER_AUDIT_LOG").unwrap_or_else(|_| "audit.log".into());
+    let audit_path = env_or("BUNKER_AUDIT_LOG", "audit.log");
     let (audit, receiver) = audit_channel(AUDIT_QUEUE);
     let writer = receiver
         .spawn_writer(&audit_path)
         .with_context(|| format!("cannot open audit log at {audit_path}"))?;
 
-    let actions = PolicyActions::new(policy, audit);
-    let signer = NostrConnectRemoteSigner::new(keys, [RELAY], None, None)?;
-
-    println!("\nbunker URI:\n {}\n", signer.bunker_uri());
-    println!(
-        "user public key (signed identity): {}",
-        user_public_key.to_bech32()?
-    );
-    println!("transport relay                  : {RELAY}");
-    println!("root of trust                    : {}\n", unwrapper.name());
+    println!("\ntransport relay                  : {RELAY}");
+    println!("root of trust                    : {}", unwrapper.name());
     println!(
         "memory locked / core dumps off   : {} / {}",
         hardening.memory_locked, hardening.core_dumps_disabled
     );
+    println!("identities                       : {identities_path}");
     println!("policy                           : {policy_path}");
+    println!("agents                           : {agents_path}");
+    println!(
+        "reload agents                    : kill -HUP {}",
+        std::process::id()
+    );
     println!("audit log                        : {audit_path}\n");
+
+    let gate = Arc::new(Gate::new(policy, agents_rx, audit));
+    let mut serving = JoinSet::new();
+    for keys in identities {
+        let user = keys.user.public_key();
+        let actions = PolicyActions::new(Arc::clone(&gate), user);
+        let signer = NostrConnectRemoteSigner::new(keys, [RELAY], None, None)?;
+        println!("identity   : {}", user.to_bech32()?);
+        println!("bunker URI : {}\n", signer.bunker_uri());
+        serving.spawn(async move { signer.serve(actions).await });
+    }
+    // Only the serve loops may hold the journal sender, so stopping them closes it.
+    drop(gate);
+
+    tokio::spawn(async move {
+        while hangup.recv().await.is_some() {
+            agents_tx.send_replace(Arc::new(access::reload(&agents_path, &served)));
+        }
+    });
 
     tracing::info!("bunker listening - Ctrl-C to stop");
 
-    tokio::select! {
-        res = signer.serve(actions) => res?,
-        _ = tokio::signal::ctrl_c() => tracing::info!("shutdown requested"),
-    }
+    // Flush the journal before reporting.
+    let outcome = tokio::select! {
+        Some(res) = serving.join_next() => res
+            .context("serve loop panicked")
+            .and_then(|r| r.context("serve loop failed")),
+        _ = tokio::signal::ctrl_c() => {
+            tracing::info!("shutdown requested");
+            Ok(())
+        }
+    };
+    serving.shutdown().await;
 
-    // `actions` — and with it the last journal sender — was dropped with the `serve`
-    // future above, which closes the channel. Joining guarantees the final batch is on disk.
     match writer.join() {
         Ok(Ok(())) => tracing::info!("audit log flushed"),
         Ok(Err(e)) => tracing::error!(error = %e, "audit writer failed"),
         Err(_) => tracing::error!("audit writer panicked"),
     }
 
-    Ok(())
+    outcome
 }

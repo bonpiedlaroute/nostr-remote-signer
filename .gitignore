@@ -15,3 +15,10 @@ audit.log
 
 # local operator policy - the committed template is policy.example.json
 policy.json
+
+# local operator config - the committed templates are *.example.json
+identities.json
+agents.json
+
+# agent credentials: the bunker itself only ever stores their SHA-256
+*.token

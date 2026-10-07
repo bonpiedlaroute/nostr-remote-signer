@@ -1,8 +1,7 @@
 //! Per-signature audit: the contract.
 //!
-//! This is the layer Keycast built and then removed (PR #39), for reasons that do not
-//! apply to agent custody: a record carries WHO asked, WHAT method, WHICH kind, and the
-//! DECISION — never the content, never the tags. Nothing here can leak a message.
+//! A record carries WHO asked, WHAT method, WHICH kind, and the DECISION — never the
+//! content, never the tags. Nothing here can leak a message.
 
 use core::fmt;
 
@@ -27,6 +26,10 @@ pub enum DenyReason {
     KindNotAllowed,
     /// The caller, or the bunker as a whole, exceeded its rate.
     RateLimited,
+    /// No valid agent credential.
+    Unauthorized,
+    /// The credential was revoked after the caller connected.
+    Revoked,
 }
 
 impl DenyReason {
@@ -36,6 +39,8 @@ impl DenyReason {
             Self::MethodNotAllowed => "method_not_allowed",
             Self::KindNotAllowed => "kind_not_allowed",
             Self::RateLimited => "rate_limited",
+            Self::Unauthorized => "unauthorized",
+            Self::Revoked => "revoked",
         }
     }
 }
@@ -61,8 +66,12 @@ impl Decision {
 pub struct AuditRecord {
     /// Unix seconds.
     pub at: u64,
+    /// The custodied identity addressed.
+    pub identity: PublicKey,
     /// The NIP-46 client key that sent the request.
     pub caller: PublicKey,
+    /// The agent behind the caller, if any — even a revoked one.
+    pub agent: Option<String>,
     /// NIP-46 method name, as on the wire: `sign_event`, `get_public_key`…
     pub method: String,
     /// Event kind, for `sign_event` only.
@@ -80,7 +89,9 @@ impl AuditRecord {
         };
         serde_json::json!({
             "at": self.at,
+            "identity": self.identity.to_hex(),
             "caller": self.caller.to_hex(),
+            "agent": self.agent,
             "method": self.method,
             "kind": self.kind,
             "decision": decision,

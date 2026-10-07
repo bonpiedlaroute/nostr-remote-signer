@@ -1,0 +1,9 @@
+{
+  "agents": [
+    {
+      "name": "buzz-bot",
+      "identity": "<npub of the identity, as printed by bunkerd>",
+      "token_sha256": "<output of: shasum -a 256 < buzz-bot.token>"
+    }
+  ]
+}

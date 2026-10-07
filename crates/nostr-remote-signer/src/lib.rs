@@ -3,6 +3,7 @@
 //! AGPL-3.0: the daemon side. The reusable traits live in `nostr-remote-signer-core`,
 //! under Apache-2.0.
 
+pub mod access;
 pub mod actions;
 pub mod audit_log;
 pub mod hardening;

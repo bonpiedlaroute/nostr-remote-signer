@@ -1,7 +1,7 @@
 //! What the bunker agrees to do, decided in memory.
 //!
 //! Default-deny: a method or a kind that the file does not name is refused. Loaded once at
-//! startup; hot reload belongs to C2, together with revocation, which needs it.
+//! startup: what must change at runtime — who may act — lives in `access`.
 
 use std::collections::HashSet;
 use std::path::Path;
