@@ -687,6 +687,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "btreecap"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6160c957d8aa33d0a8ba1dbab98e3cb57023ad9374c501441e88559f99e6c4c9"
+
+[[package]]
 name = "bumpalo"
 version = "3.20.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2063,6 +2069,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "nostr-memory"
+version = "0.45.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f5a9091e50b0ebcf8d9bd8ded23665d0434aa0eeb22b8464fc882ac124dbe5bf"
+dependencies = [
+ "btreecap",
+ "nostr",
+ "nostr-database",
+ "tokio",
+]
+
+[[package]]
 name = "nostr-remote-signer"
 version = "0.1.0"
 dependencies = [
@@ -2076,6 +2094,7 @@ dependencies = [
  "nostr",
  "nostr-connect",
  "nostr-remote-signer-core",
+ "nostr-sdk",
  "reqwest",
  "serde",
  "serde_json",
@@ -2113,6 +2132,7 @@ dependencies = [
  "nostr",
  "nostr-database",
  "nostr-gossip",
+ "nostr-memory",
  "opaquerr",
  "rand 0.10.2",
  "tokio",

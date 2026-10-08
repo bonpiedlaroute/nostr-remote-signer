@@ -19,6 +19,7 @@ path = "src/main.rs"
 nostr-remote-signer-core = { path = "../nostr-remote-signer-core", version = "0.1.0" }
 nostr                    = { workspace = true }
 nostr-connect            = { workspace = true }
+nostr-sdk                = { workspace = true }
 tokio                    = { workspace = true }
 anyhow                   = { workspace = true }
 tracing                  = { workspace = true }
@@ -44,3 +45,7 @@ aws     = ["dep:aws-sdk-kms", "dep:aws-config"]
 [[bin]]
 name = "leak_probe"
 path = "src/bin/leak_probe.rs"
+
+[[bin]]
+name = "bunker-relay"
+path = "src/bin/bunker_relay.rs"

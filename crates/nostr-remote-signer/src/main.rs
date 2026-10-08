@@ -11,23 +11,18 @@ use nostr_connect::prelude::*;
 use nostr_remote_signer::access::{self, Agents};
 use nostr_remote_signer::actions::{Gate, PolicyActions};
 use nostr_remote_signer::audit_log::audit_channel;
-use nostr_remote_signer::hardening;
 use nostr_remote_signer::policy::Policy;
 use nostr_remote_signer::sealed::SealedKey;
 use nostr_remote_signer::unwrap::passphrase::PassphraseUnwrapper;
+use nostr_remote_signer::{env_or, hardening};
 use nostr_remote_signer_core::KeyUnwrapper;
 use serde::Deserialize;
 use tokio::signal::unix::{SignalKind, signal};
 use tokio::sync::watch;
 use tokio::task::JoinSet;
 
-/// Bunker transport relay.
-///
-/// Must be a third-party relay WITHOUT authentication, accepting ephemeral kind 24133.
-/// Public relays are a moving target: measure the WebSocket UPGRADE, not an HTTPS GET.
-/// 2026-09-15: nos.lol and nostr.mom answer 101; relay.damus.io answers 503;
-/// relay.nsec.app is down.
-const RELAY: &str = "wss://nos.lol";
+/// Transport relay: the bunker's own (`bunker-relay`) unless `BUNKER_RELAY` says otherwise.
+const DEFAULT_RELAY: &str = "ws://127.0.0.1:7777";
 
 /// Pending journal records before the writer is considered behind. Losses beyond that are
 /// counted and written as an `audit_gap` line, never silently dropped.
@@ -40,10 +35,6 @@ struct IdentityFiles {
     signer: String,
     /// Custodied key, the one that signs.
     user: String,
-}
-
-fn env_or(var: &str, default: &str) -> String {
-    std::env::var(var).unwrap_or_else(|_| default.to_string())
 }
 
 async fn load_sealed(path: &str, unwrapper: &dyn KeyUnwrapper) -> Result<Keys> {
@@ -101,6 +92,7 @@ async fn main() -> Result<()> {
     // file, which an attacker with disk write access could otherwise downgrade.
     let unwrapper = PassphraseUnwrapper::from_env()?;
 
+    let relay = env_or("BUNKER_RELAY", DEFAULT_RELAY);
     let identities_path = env_or("BUNKER_IDENTITIES", "identities.json");
     let identities = load_identities(&identities_path, &unwrapper).await?;
     let served: HashSet<PublicKey> = identities.iter().map(|k| k.user.public_key()).collect();
@@ -123,7 +115,12 @@ async fn main() -> Result<()> {
         .spawn_writer(&audit_path)
         .with_context(|| format!("cannot open audit log at {audit_path}"))?;
 
-    println!("\ntransport relay                  : {RELAY}");
+    let signers: Vec<String> = identities
+        .iter()
+        .map(|k| k.signer.public_key().to_hex())
+        .collect();
+    println!("\ntransport relay                  : {relay}");
+    println!("BUNKER_RELAY_SIGNERS             : {}", signers.join(","));
     println!("root of trust                    : {}", unwrapper.name());
     println!(
         "memory locked / core dumps off   : {} / {}",
@@ -143,7 +140,7 @@ async fn main() -> Result<()> {
     for keys in identities {
         let user = keys.user.public_key();
         let actions = PolicyActions::new(Arc::clone(&gate), user);
-        let signer = NostrConnectRemoteSigner::new(keys, [RELAY], None, None)?;
+        let signer = NostrConnectRemoteSigner::new(keys, [relay.as_str()], None, None)?;
         println!("identity   : {}", user.to_bech32()?);
         println!("bunker URI : {}\n", signer.bunker_uri());
         serving.spawn(async move { signer.serve(actions).await });
