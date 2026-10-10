@@ -1,0 +1,7 @@
+# Whitelist: the enclave image is built from the sources and enclave/conf only.
+# Anything else at the root (sealed keys, tokens, journal, notes) stays out.
+**
+!Cargo.toml
+!Cargo.lock
+!crates
+!enclave/conf

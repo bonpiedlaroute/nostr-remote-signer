@@ -22,3 +22,7 @@ agents.json
 
 # agent credentials: the bunker itself only ever stores their SHA-256
 *.token
+
+# enclave: dev identity and configuration, and build outputs (the EIF embeds sealed keys)
+enclave/conf/
+enclave/out/

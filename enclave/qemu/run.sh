@@ -40,6 +40,8 @@ for _ in $(seq 50); do
 done
 [ -S "$SOCKET" ] || { echo "vhost-device-vsock did not start, see $LOGS/vsock.log" >&2; exit 1; }
 
+# -no-reboot: the enclave's init reboots when its program exits; on Nitro that ends the
+# enclave, so QEMU must stop too instead of booting it again.
 "$QEMU" -M nitro-enclave,vsock=c,id=enclave -kernel "$EIF" \
-    -nographic -m "$MEM" -accel kvm -cpu host \
+    -nographic -no-reboot -m "$MEM" -accel kvm -cpu host \
     -chardev "socket,id=c,path=$SOCKET"
