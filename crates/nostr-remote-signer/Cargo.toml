@@ -56,3 +56,7 @@ path = "src/bin/bunker_relay.rs"
 [[bin]]
 name = "enclave-init"
 path = "src/bin/enclave_init.rs"
+
+[[bin]]
+name = "journal-sink"
+path = "src/bin/journal_sink.rs"

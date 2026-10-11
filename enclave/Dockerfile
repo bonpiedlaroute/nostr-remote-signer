@@ -13,8 +13,9 @@ FROM scratch
 COPY --from=build /src/target/release/bunkerd /src/target/release/enclave-init /
 COPY enclave/conf/ /etc/bunker/
 # The enclave's init ignores WORKDIR and starts in /: every path is absolute.
+# The journal goes to the parent (journal-sink): the enclave has no disk.
 ENV BUNKER_IDENTITIES=/etc/bunker/identities.json \
     BUNKER_POLICY=/etc/bunker/policy.json \
     BUNKER_AGENTS=/etc/bunker/agents.json \
-    BUNKER_AUDIT_LOG=/etc/bunker/audit.log
+    BUNKER_AUDIT_LOG=vsock://3:7001
 ENTRYPOINT ["/enclave-init", "/bunkerd"]

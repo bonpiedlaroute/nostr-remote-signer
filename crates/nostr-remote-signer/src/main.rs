@@ -108,12 +108,15 @@ async fn main() -> Result<()> {
     let mut hangup = signal(SignalKind::hangup())?;
 
     // Journal: the signing path only ever does a non-blocking try_send; a dedicated thread
-    // owns the file and fsyncs every batch.
+    // makes every batch durable. A path, or vsock://CID:PORT in an enclave, which has no
+    // disk: its parent keeps the journal.
     let audit_path = env_or("BUNKER_AUDIT_LOG", "audit.log");
     let (audit, receiver) = audit_channel(AUDIT_QUEUE);
-    let writer = receiver
-        .spawn_writer(&audit_path)
-        .with_context(|| format!("cannot open audit log at {audit_path}"))?;
+    let writer = match audit_path.strip_prefix("vsock://") {
+        Some(addr) => receiver.spawn_vsock(addr),
+        None => receiver.spawn_writer(&audit_path),
+    }
+    .with_context(|| format!("cannot open audit log at {audit_path}"))?;
 
     let signers: Vec<String> = identities
         .iter()
