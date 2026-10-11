@@ -35,6 +35,9 @@ aws-sdk-kms              = { workspace = true, optional = true }
 aws-config               = { workspace = true, optional = true }
 libc                     = { workspace = true }
 
+[target.'cfg(target_os = "linux")'.dependencies]
+vsock                    = { workspace = true }
+
 [dev-dependencies]
 reqwest = { workspace = true }
 
@@ -49,3 +52,7 @@ path = "src/bin/leak_probe.rs"
 [[bin]]
 name = "bunker-relay"
 path = "src/bin/bunker_relay.rs"
+
+[[bin]]
+name = "enclave-init"
+path = "src/bin/enclave_init.rs"
