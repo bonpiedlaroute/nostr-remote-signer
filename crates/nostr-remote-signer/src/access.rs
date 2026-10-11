@@ -75,6 +75,11 @@ impl Agents {
     }
 }
 
+/// Where `bunkerd` reads the agents, and where `enclave-init` writes them.
+pub fn agents_path() -> String {
+    crate::env_or("BUNKER_AGENTS", "agents.json")
+}
+
 /// SHA-256, lowercase hex. A fast hash is enough: tokens are 256 random bits, not
 /// passwords, and `approve` must not block.
 pub fn token_hash(secret: &str) -> String {

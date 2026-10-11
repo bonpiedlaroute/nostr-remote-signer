@@ -102,10 +102,11 @@ async fn main() -> Result<()> {
     let policy_path = env_or("BUNKER_POLICY", "policy.json");
     let policy = Policy::load(&policy_path)?;
 
-    let agents_path = env_or("BUNKER_AGENTS", "agents.json");
-    let (agents_tx, agents_rx) = watch::channel(Arc::new(Agents::load(&agents_path, &served)?));
-    // Before serving: the default action of SIGHUP kills the process.
+    // Before the agents are read, so that no reload is missed, and before serving: the
+    // default action of SIGHUP kills the process.
     let mut hangup = signal(SignalKind::hangup())?;
+    let agents_path = access::agents_path();
+    let (agents_tx, agents_rx) = watch::channel(Arc::new(Agents::load(&agents_path, &served)?));
 
     // Journal: the signing path only ever does a non-blocking try_send; a dedicated thread
     // makes every batch durable. A path, or vsock://CID:PORT in an enclave, which has no
