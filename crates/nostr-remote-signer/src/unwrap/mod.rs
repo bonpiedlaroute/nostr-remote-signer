@@ -7,3 +7,5 @@ pub mod passphrase;
 
 #[cfg(feature = "aws")]
 pub mod kms;
+#[cfg(feature = "aws")]
+pub mod recipient;
