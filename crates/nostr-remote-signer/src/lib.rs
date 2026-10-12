@@ -6,6 +6,8 @@
 pub mod access;
 pub mod actions;
 pub mod audit_log;
+#[cfg(feature = "aws")]
+pub mod cbor;
 pub mod hardening;
 pub mod policy;
 pub mod rate;

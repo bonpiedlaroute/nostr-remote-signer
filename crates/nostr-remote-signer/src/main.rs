@@ -13,8 +13,7 @@ use nostr_remote_signer::actions::{Gate, PolicyActions};
 use nostr_remote_signer::audit_log::audit_channel;
 use nostr_remote_signer::policy::Policy;
 use nostr_remote_signer::sealed::SealedKey;
-use nostr_remote_signer::unwrap::passphrase::PassphraseUnwrapper;
-use nostr_remote_signer::{env_or, hardening};
+use nostr_remote_signer::{env_or, hardening, unwrap};
 use nostr_remote_signer_core::KeyUnwrapper;
 use serde::Deserialize;
 use tokio::signal::unix::{SignalKind, signal};
@@ -90,11 +89,11 @@ async fn main() -> Result<()> {
 
     // The root of trust. Chosen HERE, by process configuration — never by the sealed
     // file, which an attacker with disk write access could otherwise downgrade.
-    let unwrapper = PassphraseUnwrapper::from_env()?;
+    let unwrapper = unwrap::from_env().await?;
 
     let relay = env_or("BUNKER_RELAY", DEFAULT_RELAY);
     let identities_path = env_or("BUNKER_IDENTITIES", "identities.json");
-    let identities = load_identities(&identities_path, &unwrapper).await?;
+    let identities = load_identities(&identities_path, unwrapper.as_ref()).await?;
     let served: HashSet<PublicKey> = identities.iter().map(|k| k.user.public_key()).collect();
 
     // Default-deny policy. No policy file, no daemon: refusing to start beats approving

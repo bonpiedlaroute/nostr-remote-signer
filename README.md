@@ -35,7 +35,7 @@ Works with any NIP-46 client. Demonstrated against a self-hosted Buzz relay.
 
 | | |
 |---|---|
-| **Key custody** | Keys are sealed at rest by envelope encryption: a random data key (XChaCha20-Poly1305) wrapped by a root of trust, unwrapped once per key at boot. `bunkerd` uses a passphrase (`age`, scrypt). An AWS KMS backend (`GenerateDataKey`) exists in the library behind `--features aws`; `bunkerd` cannot select it yet. |
+| **Key custody** | Keys are sealed at rest by envelope encryption: a random data key (XChaCha20-Poly1305) wrapped by a root of trust, unwrapped once per key at boot. `bunkerd` uses a passphrase (`age`, scrypt) by default, or AWS KMS when built with `--features aws`. |
 | **Memory hygiene** | Core dumps disabled, all memory locked against swap (`mlockall`, Linux only: macOS does not implement it), secrets zeroized on drop, `Debug` output redacted. A test runs the binary and searches its whole output for the key. |
 | **Policy** | Default-deny allowlist of NIP-46 methods and event kinds (`policy.json`). |
 | **Rate limits** | Token buckets per caller and for the whole bunker, checked before anything else. |
@@ -120,7 +120,9 @@ operator and ignored by git; the repository ships `*.example.json` templates.
 
 | Variable | Default | |
 |---|---|---|
-| `BUNKER_PASSPHRASE` | — (required) | Root of trust for the sealed keys |
+| `BUNKER_ROOT_OF_TRUST` | `passphrase` | `passphrase`; with `--features aws`, `aws-kms`, or `nitro` (KMS, attested from an enclave) |
+| `BUNKER_PASSPHRASE` | — (required with `passphrase`) | Root of trust for the sealed keys |
+| `BUNKER_KMS_KEY_ID` | — (required with `aws-kms`, `nitro`) | The KMS key that wraps the data keys |
 | `BUNKER_IDENTITIES` | `identities.json` | Sealed key pairs to serve, read at boot |
 | `BUNKER_POLICY` | `policy.json` | Allowed methods, kinds and rate limits, read at boot |
 | `BUNKER_AGENTS` | `agents.json` | Agents and their token hashes, reloaded on `SIGHUP` |
@@ -208,7 +210,6 @@ next step is a key that even root on the vault host cannot read.
 - **Attested key release.** Run the vault in an AWS Nitro Enclave, with KMS releasing
   the data key only to an image whose measurement is pinned in the key policy
   (`kms:RecipientAttestation:ImageSha384`). Root on the host then cannot decrypt the key.
-- KMS root of trust selectable in `bunkerd`.
 - Hash-chained journal, for tamper evidence.
 - Known agent transport keys at the relay, so that a flood cannot starve registered agents.
 

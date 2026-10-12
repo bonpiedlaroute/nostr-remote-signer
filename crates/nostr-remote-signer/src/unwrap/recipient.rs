@@ -237,30 +237,14 @@ impl<'a> Ber<'a> {
     }
 }
 
+/// KMS's side of an attested `Decrypt`, for the tests of this crate.
 #[cfg(test)]
-mod tests {
+pub(crate) mod testing {
     use aws_lc_rs::cipher::PaddedBlockEncryptingKey;
     use aws_lc_rs::rand::{SecureRandom, SystemRandom};
     use aws_lc_rs::rsa::{OaepPublicEncryptingKey, PublicEncryptingKey};
-    use base64::Engine as _;
-    use base64::engine::general_purpose::STANDARD as BASE64;
 
     use super::*;
-
-    /// Two real KMS answers, from the AWS Nitro Enclaves SDK for C
-    /// (tests/kmstool-enclaves/cms_test.c, Apache-2.0): the content in chunks, then the
-    /// content in one primitive [0].
-    const KMS_CHUNKED: &str = "MIAGCSqGSIb3DQEHA6CAMIACAQIxggFrMIIBZwIBAoAgcIe1XflLoyVc3zwBhAoqo+yTYgYl1gHPVvl73no9LrEwPAYJKoZIhvcNAQEHMC+gDzANBglghkgBZQMEAgEFAKEcMBoGCSqGSIb3DQEBCDANBglghkgBZQMEAgEFAASCAQCgYUWToDDuM2v/8HZhiwEw0EXen00YPYPF2ogvE6vB9L8NE2RYaTk0QqtYLmoE1pfVLVYj42fn6S2269K9B3NbFT8oJr7l344WxxOh6Fy2uoXohoEzXH6UGpSr8MARPgMJFuK24YJttP+5GbjhtvWewnfljeQLD/7sqg2U+8spA3TtPfw10xqPQ64TAP4g/dmG1LhWVldFH53Gk+E0Z4kgIhxYoo2l5xq2sxyqRFglpjhcbE9dXV67wsJXDpZH/e02tVlke8sn5YiGJV9YLGPYY+zsMH0Vdjq84LG4EqVQk4yk4tKKdFY9tSNnVY0+LoKsKif+XJORoAfBX3W5CrDdMIAGCSqGSIb3DQEHATAdBglghkgBZQMEASoEEGiMbV9/MbD+zt8J8ufJmsmggAQwcOXKr/1JrSTv4Vv5A76dGYlbd30mm1ewJfb2fn75P5RGRRXy6+A06gt2IaH/GSkuAAAAAAAAAAAAAA==";
-    const KMS_CHUNKED_KEY: &str = "oGFFk6Aw7jNr//B2YYsBMNBF3p9NGD2DxdqILxOrwfS/DRNkWGk5NEKrWC5qBNaX1S1WI+Nn5+kttuvSvQdzWxU/KCa+5d+OFscToehctrqF6IaBM1x+lBqUq/DAET4DCRbituGCbbT/uRm44bb1nsJ35Y3kCw/+7KoNlPvLKQN07T38NdMaj0OuEwD+IP3ZhtS4VlZXRR+dxpPhNGeJICIcWKKNpecatrMcqkRYJaY4XGxPXV1eu8LCVw6WR/3tNrVZZHvLJ+WIhiVfWCxj2GPs7DB9FXY6vOCxuBKlUJOMpOLSinRWPbUjZ1WNPi6CrCon/lyTkaAHwV91uQqw3Q==";
-    const KMS_CHUNKED_IV: &str = "aIxtX38xsP7O3wny58mayQ==";
-    const KMS_CHUNKED_CONTENT: &str =
-        "cOXKr/1JrSTv4Vv5A76dGYlbd30mm1ewJfb2fn75P5RGRRXy6+A06gt2IaH/GSku";
-    const KMS_CHUNKED_RID: &str = "cIe1XflLoyVc3zwBhAoqo+yTYgYl1gHPVvl73no9LrE=";
-
-    const KMS_PRIMITIVE: &str = "MIAGCSqGSIb3DQEHA6CAMIACAQIxggFrMIIBZwIBAoAgTmHfaeRDuOJciugzGM/HLZtqUXbSFneQ/fgZwIbmlnowPAYJKoZIhvcNAQEHMC+gDzANBglghkgBZQMEAgEFAKEcMBoGCSqGSIb3DQEBCDANBglghkgBZQMEAgEFAASCAQBKHKEiAuTOCx+LNc6g1dkFM2yqpdUX7tZfb9h6DnspKRJlKUFSepqLiPnnxrUJdAdLgabUN1GHbnyllfVd+GpHQoYZReC5FeS4QLngQ5Ieve+S0ViMcnu6nPk2Cs+WY7yLp9q0Pytho/SRcqB2GACtA2BrWn9ZWUbFCrI8fQAUYp5wwvbUELSWejLgttpxLvg7Hwla1N97DTpYR/mvvXXXKUc6Bw95ecwMQ6HVusd6jtexfbyVTl2IEAMyvA4CwoO/AbTGsWCxFQ6t/I2R1ij19hSvTzhNWB+19gerkfYKw893cyWo+v6QPv8d1+QmAkTlBmSqtiRLw+kZUQcKXcX4MIAGCSqGSIb3DQEHATAdBglghkgBZQMEASoEEOZsEXKu4PL3vjTjr8aw5P6AEB+UPrAQXBsGRN9PcTBEiigAAAAAAAAAAA==";
-    const KMS_PRIMITIVE_KEY: &str = "ShyhIgLkzgsfizXOoNXZBTNsqqXVF+7WX2/Yeg57KSkSZSlBUnqai4j558a1CXQHS4Gm1DdRh258pZX1XfhqR0KGGUXguRXkuEC54EOSHr3vktFYjHJ7upz5NgrPlmO8i6fatD8rYaP0kXKgdhgArQNga1p/WVlGxQqyPH0AFGKecML21BC0lnoy4LbacS74Ox8JWtTfew06WEf5r7111ylHOgcPeXnMDEOh1brHeo7XsX28lU5diBADMrwOAsKDvwG0xrFgsRUOrfyNkdYo9fYUr084TVgftfYHq5H2CsPPd3MlqPr+kD7/HdfkJgJE5QZkqrYkS8PpGVEHCl3F+A==";
-    const KMS_PRIMITIVE_IV: &str = "5mwRcq7g8ve+NOOvxrDk/g==";
-    const KMS_PRIMITIVE_CONTENT: &str = "H5Q+sBBcGwZE309xMESKKA==";
 
     /// The keyEncryptionAlgorithm of both answers: RSAES-OAEP, SHA-256, MGF1 with SHA-256.
     const OAEP_SHA256: &[u8] = &[
@@ -272,10 +256,6 @@ mod tests {
     ];
     /// 1.2.840.113549.1.7.1
     const DATA: &[u8] = &[0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x07, 0x01];
-
-    fn b64(s: &str) -> Vec<u8> {
-        BASE64.decode(s).unwrap()
-    }
 
     fn tlv(tag: u8, body: &[u8]) -> Vec<u8> {
         let len = match body.len() {
@@ -291,7 +271,12 @@ mod tests {
     }
 
     /// An answer laid out exactly as KMS lays it out.
-    fn kms_shaped(rid: &[u8], encrypted_key: &[u8], iv: &[u8], chunks: &[&[u8]]) -> Vec<u8> {
+    pub(crate) fn kms_shaped(
+        rid: &[u8],
+        encrypted_key: &[u8],
+        iv: &[u8],
+        chunks: &[&[u8]],
+    ) -> Vec<u8> {
         let recipient = tlv(
             SEQUENCE,
             &[
@@ -326,12 +311,12 @@ mod tests {
     }
 
     /// What KMS does with an attested Decrypt: a fresh content key wrapped for the
-    /// recipient, the plaintext under that key, in two chunks.
-    fn seal_for(recipient: &Recipient, plaintext: &[u8]) -> Vec<u8> {
+    /// recipient's public key, the plaintext under that key, in two chunks.
+    pub(crate) fn seal_for(public_key: &[u8], plaintext: &[u8]) -> Vec<u8> {
         let mut content_key = [0u8; 32];
         SystemRandom::new().fill(&mut content_key).unwrap();
 
-        let public = PublicEncryptingKey::from_der(recipient.public_key()).unwrap();
+        let public = PublicEncryptingKey::from_der(public_key).unwrap();
         let public = OaepPublicEncryptingKey::new(public).unwrap();
         let mut encrypted_key = vec![0; public.ciphertext_size()];
         let encrypted_key = public
@@ -351,6 +336,34 @@ mod tests {
 
         let (first, second) = content.split_at(16);
         kms_shaped(&[7; 32], encrypted_key, iv, &[first, second])
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use base64::Engine as _;
+    use base64::engine::general_purpose::STANDARD as BASE64;
+
+    use super::testing::{kms_shaped, seal_for};
+    use super::*;
+
+    /// Two real KMS answers, from the AWS Nitro Enclaves SDK for C
+    /// (tests/kmstool-enclaves/cms_test.c, Apache-2.0): the content in chunks, then the
+    /// content in one primitive [0].
+    const KMS_CHUNKED: &str = "MIAGCSqGSIb3DQEHA6CAMIACAQIxggFrMIIBZwIBAoAgcIe1XflLoyVc3zwBhAoqo+yTYgYl1gHPVvl73no9LrEwPAYJKoZIhvcNAQEHMC+gDzANBglghkgBZQMEAgEFAKEcMBoGCSqGSIb3DQEBCDANBglghkgBZQMEAgEFAASCAQCgYUWToDDuM2v/8HZhiwEw0EXen00YPYPF2ogvE6vB9L8NE2RYaTk0QqtYLmoE1pfVLVYj42fn6S2269K9B3NbFT8oJr7l344WxxOh6Fy2uoXohoEzXH6UGpSr8MARPgMJFuK24YJttP+5GbjhtvWewnfljeQLD/7sqg2U+8spA3TtPfw10xqPQ64TAP4g/dmG1LhWVldFH53Gk+E0Z4kgIhxYoo2l5xq2sxyqRFglpjhcbE9dXV67wsJXDpZH/e02tVlke8sn5YiGJV9YLGPYY+zsMH0Vdjq84LG4EqVQk4yk4tKKdFY9tSNnVY0+LoKsKif+XJORoAfBX3W5CrDdMIAGCSqGSIb3DQEHATAdBglghkgBZQMEASoEEGiMbV9/MbD+zt8J8ufJmsmggAQwcOXKr/1JrSTv4Vv5A76dGYlbd30mm1ewJfb2fn75P5RGRRXy6+A06gt2IaH/GSkuAAAAAAAAAAAAAA==";
+    const KMS_CHUNKED_KEY: &str = "oGFFk6Aw7jNr//B2YYsBMNBF3p9NGD2DxdqILxOrwfS/DRNkWGk5NEKrWC5qBNaX1S1WI+Nn5+kttuvSvQdzWxU/KCa+5d+OFscToehctrqF6IaBM1x+lBqUq/DAET4DCRbituGCbbT/uRm44bb1nsJ35Y3kCw/+7KoNlPvLKQN07T38NdMaj0OuEwD+IP3ZhtS4VlZXRR+dxpPhNGeJICIcWKKNpecatrMcqkRYJaY4XGxPXV1eu8LCVw6WR/3tNrVZZHvLJ+WIhiVfWCxj2GPs7DB9FXY6vOCxuBKlUJOMpOLSinRWPbUjZ1WNPi6CrCon/lyTkaAHwV91uQqw3Q==";
+    const KMS_CHUNKED_IV: &str = "aIxtX38xsP7O3wny58mayQ==";
+    const KMS_CHUNKED_CONTENT: &str =
+        "cOXKr/1JrSTv4Vv5A76dGYlbd30mm1ewJfb2fn75P5RGRRXy6+A06gt2IaH/GSku";
+    const KMS_CHUNKED_RID: &str = "cIe1XflLoyVc3zwBhAoqo+yTYgYl1gHPVvl73no9LrE=";
+
+    const KMS_PRIMITIVE: &str = "MIAGCSqGSIb3DQEHA6CAMIACAQIxggFrMIIBZwIBAoAgTmHfaeRDuOJciugzGM/HLZtqUXbSFneQ/fgZwIbmlnowPAYJKoZIhvcNAQEHMC+gDzANBglghkgBZQMEAgEFAKEcMBoGCSqGSIb3DQEBCDANBglghkgBZQMEAgEFAASCAQBKHKEiAuTOCx+LNc6g1dkFM2yqpdUX7tZfb9h6DnspKRJlKUFSepqLiPnnxrUJdAdLgabUN1GHbnyllfVd+GpHQoYZReC5FeS4QLngQ5Ieve+S0ViMcnu6nPk2Cs+WY7yLp9q0Pytho/SRcqB2GACtA2BrWn9ZWUbFCrI8fQAUYp5wwvbUELSWejLgttpxLvg7Hwla1N97DTpYR/mvvXXXKUc6Bw95ecwMQ6HVusd6jtexfbyVTl2IEAMyvA4CwoO/AbTGsWCxFQ6t/I2R1ij19hSvTzhNWB+19gerkfYKw893cyWo+v6QPv8d1+QmAkTlBmSqtiRLw+kZUQcKXcX4MIAGCSqGSIb3DQEHATAdBglghkgBZQMEASoEEOZsEXKu4PL3vjTjr8aw5P6AEB+UPrAQXBsGRN9PcTBEiigAAAAAAAAAAA==";
+    const KMS_PRIMITIVE_KEY: &str = "ShyhIgLkzgsfizXOoNXZBTNsqqXVF+7WX2/Yeg57KSkSZSlBUnqai4j558a1CXQHS4Gm1DdRh258pZX1XfhqR0KGGUXguRXkuEC54EOSHr3vktFYjHJ7upz5NgrPlmO8i6fatD8rYaP0kXKgdhgArQNga1p/WVlGxQqyPH0AFGKecML21BC0lnoy4LbacS74Ox8JWtTfew06WEf5r7111ylHOgcPeXnMDEOh1brHeo7XsX28lU5diBADMrwOAsKDvwG0xrFgsRUOrfyNkdYo9fYUr084TVgftfYHq5H2CsPPd3MlqPr+kD7/HdfkJgJE5QZkqrYkS8PpGVEHCl3F+A==";
+    const KMS_PRIMITIVE_IV: &str = "5mwRcq7g8ve+NOOvxrDk/g==";
+    const KMS_PRIMITIVE_CONTENT: &str = "H5Q+sBBcGwZE309xMESKKA==";
+
+    fn b64(s: &str) -> Vec<u8> {
+        BASE64.decode(s).unwrap()
     }
 
     #[test]
@@ -392,14 +405,16 @@ mod tests {
     fn opens_what_was_sealed_for_it() {
         let recipient = Recipient::generate().unwrap();
         let data_key = [42u8; 32];
-        let opened = recipient.open(&seal_for(&recipient, &data_key)).unwrap();
+        let opened = recipient
+            .open(&seal_for(recipient.public_key(), &data_key))
+            .unwrap();
         assert_eq!(*opened, data_key);
     }
 
     #[test]
     fn another_key_cannot_open_it() {
         let recipient = Recipient::generate().unwrap();
-        let answer = seal_for(&recipient, &[42; 32]);
+        let answer = seal_for(recipient.public_key(), &[42; 32]);
         let other = Recipient::generate().unwrap();
         assert!(matches!(other.open(&answer), Err(KeyUnwrapError::Invalid)));
     }

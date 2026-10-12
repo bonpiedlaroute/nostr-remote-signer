@@ -4,31 +4,52 @@
 //! is precisely the envelope, provided by the service. Calling `Encrypt` on the payload
 //! itself would cost a KMS round trip per secret and per load.
 //!
-//! Block D2 changes nothing here: the CMK policy gains
-//! `kms:RecipientAttestation:ImageSha384`, and this code is untouched. That property is the
-//! reason the trait exists at all.
+//! In an enclave, every `Decrypt` carries an attestation document, and KMS answers with
+//! the data key sealed for the enclave alone (`recipient`). The key policy then decides
+//! which enclave image may decrypt (`kms:RecipientAttestation:ImageSha384`): the parent
+//! instance, root included, gets nothing out of the same call.
 
 use aws_sdk_kms::Client;
+use aws_sdk_kms::error::DisplayErrorContext;
 use aws_sdk_kms::primitives::Blob;
-use aws_sdk_kms::types::DataKeySpec;
+use aws_sdk_kms::types::{DataKeySpec, KeyEncryptionMechanism, RecipientInfo};
 use nostr_remote_signer_core::{KeyUnwrapError, KeyUnwrapper, UnwrapFuture};
 use zeroize::Zeroizing;
+
+use super::recipient::Recipient;
+
+/// Proves to KMS where a request comes from: a signed document carrying `public_key`.
+pub trait Attester: std::fmt::Debug + Send + Sync {
+    fn attest(&self, public_key: &[u8]) -> Result<Vec<u8>, KeyUnwrapError>;
+}
 
 #[derive(Debug)]
 pub struct KmsUnwrapper {
     client: Client,
     key_id: String,
+    /// Set in an enclave: every `Decrypt` is then attested.
+    attester: Option<Box<dyn Attester>>,
+}
+
+/// The whole error chain: the bare `Display` of an SDK error is only "service error".
+fn backend(e: impl std::error::Error) -> KeyUnwrapError {
+    KeyUnwrapError::Backend(DisplayErrorContext(e).to_string())
 }
 
 impl KmsUnwrapper {
-    pub async fn from_env() -> Result<Self, KeyUnwrapError> {
+    pub fn new(client: Client, key_id: String, attester: Option<Box<dyn Attester>>) -> Self {
+        Self {
+            client,
+            key_id,
+            attester,
+        }
+    }
+
+    pub async fn from_env(attester: Option<Box<dyn Attester>>) -> Result<Self, KeyUnwrapError> {
         let key_id = std::env::var("BUNKER_KMS_KEY_ID")
             .map_err(|_| KeyUnwrapError::Configuration("BUNKER_KMS_KEY_ID is not set".into()))?;
         let config = aws_config::load_defaults(aws_config::BehaviorVersion::latest()).await;
-        Ok(Self {
-            client: Client::new(&config),
-            key_id,
-        })
+        Ok(Self::new(Client::new(&config), key_id, attester))
     }
 
     /// Ask KMS for a fresh data key. Returns (plaintext, sealed) — the envelope, in one call.
@@ -45,7 +66,7 @@ impl KmsUnwrapper {
             .key_spec(DataKeySpec::Aes256)
             .send()
             .await
-            .map_err(|e| KeyUnwrapError::Backend(e.to_string()))?;
+            .map_err(backend)?;
 
         let plaintext = out
             .plaintext()
@@ -71,7 +92,7 @@ impl KeyUnwrapper for KmsUnwrapper {
                 .plaintext(Blob::new(data_key))
                 .send()
                 .await
-                .map_err(|e| KeyUnwrapError::Backend(e.to_string()))?;
+                .map_err(backend)?;
 
             out.ciphertext_blob()
                 .map(|b| b.as_ref().to_vec())
@@ -81,22 +102,193 @@ impl KeyUnwrapper for KmsUnwrapper {
 
     fn unwrap_data_key<'a>(&'a self, wrapped: &'a [u8]) -> UnwrapFuture<'a, Zeroizing<Vec<u8>>> {
         Box::pin(async move {
-            let out = self
+            let request = self
                 .client
                 .decrypt()
                 .key_id(&self.key_id)
-                .ciphertext_blob(Blob::new(wrapped))
+                .ciphertext_blob(Blob::new(wrapped));
+
+            let Some(attester) = &self.attester else {
+                let out = request.send().await.map_err(backend)?;
+                return out
+                    .plaintext()
+                    .map(|b| Zeroizing::new(b.as_ref().to_vec()))
+                    .ok_or(KeyUnwrapError::Invalid);
+            };
+
+            // A key pair per call: the answer can be opened here, and nowhere else.
+            let recipient = Recipient::generate()?;
+            let document = attester.attest(recipient.public_key())?;
+            let out = request
+                .recipient(
+                    RecipientInfo::builder()
+                        .key_encryption_algorithm(KeyEncryptionMechanism::RsaesOaepSha256)
+                        .attestation_document(Blob::new(document))
+                        .build(),
+                )
                 .send()
                 .await
-                .map_err(|e| KeyUnwrapError::Backend(e.to_string()))?;
-
-            out.plaintext()
-                .map(|b| Zeroizing::new(b.as_ref().to_vec()))
-                .ok_or(KeyUnwrapError::Invalid)
+                .map_err(backend)?;
+            let answer = out.ciphertext_for_recipient().ok_or_else(|| {
+                KeyUnwrapError::Backend("KMS returned no CiphertextForRecipient".into())
+            })?;
+            recipient.open(answer.as_ref())
         })
     }
 
     fn name(&self) -> &'static str {
-        "aws-kms"
+        if self.attester.is_some() {
+            "nitro"
+        } else {
+            "aws-kms"
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use aws_sdk_kms::config::{BehaviorVersion, Credentials, Region};
+    use base64::Engine as _;
+    use base64::engine::general_purpose::STANDARD as BASE64;
+    use nostr::key::Keys;
+    use serde_json::{Value, json};
+    use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
+    use tokio::net::{TcpListener, TcpStream};
+
+    use super::*;
+    use crate::sealed::SealedKey;
+    use crate::unwrap::recipient::testing::seal_for;
+
+    const KEY: &str = "arn:aws:kms:eu-west-3:111122223333:key/fake";
+
+    /// Hands the public key over as the "document": the fake KMS reads it back as is.
+    #[derive(Debug)]
+    struct FakeAttester;
+
+    impl Attester for FakeAttester {
+        fn attest(&self, public_key: &[u8]) -> Result<Vec<u8>, KeyUnwrapError> {
+            Ok(public_key.to_vec())
+        }
+    }
+
+    /// KMS under the key policy of D2-4: `Encrypt` for anyone, `Decrypt` only when attested.
+    /// Its "wrapping" is the identity, which is enough to tell the two paths apart.
+    async fn fake_kms() -> String {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap());
+        tokio::spawn(async move {
+            loop {
+                let (stream, _) = listener.accept().await.unwrap();
+                tokio::spawn(serve(stream));
+            }
+        });
+        url
+    }
+
+    async fn serve(stream: TcpStream) {
+        let mut stream = BufReader::new(stream);
+        loop {
+            let (mut target, mut len) = (String::new(), 0);
+            loop {
+                let mut line = String::new();
+                if stream.read_line(&mut line).await.unwrap_or(0) == 0 {
+                    return;
+                }
+                let line = line.trim_end();
+                if line.is_empty() {
+                    break;
+                }
+                if let Some((name, value)) = line.split_once(':') {
+                    match name.to_ascii_lowercase().as_str() {
+                        "x-amz-target" => target = value.trim().to_string(),
+                        "content-length" => len = value.trim().parse().unwrap(),
+                        _ => {}
+                    }
+                }
+            }
+            let mut body = vec![0; len];
+            stream.read_exact(&mut body).await.unwrap();
+
+            let (status, reply) = answer(&target, &serde_json::from_slice(&body).unwrap());
+            let reply = reply.to_string();
+            let head = format!(
+                "HTTP/1.1 {status}\r\ncontent-type: application/x-amz-json-1.1\r\n\
+                 content-length: {}\r\n\r\n",
+                reply.len()
+            );
+            let stream = stream.get_mut();
+            stream.write_all(head.as_bytes()).await.unwrap();
+            stream.write_all(reply.as_bytes()).await.unwrap();
+        }
+    }
+
+    fn answer(target: &str, request: &Value) -> (&'static str, Value) {
+        let blob = |v: &Value| BASE64.decode(v.as_str().unwrap()).unwrap();
+        let denied = |why: &str| {
+            let error = json!({ "__type": "AccessDeniedException", "message": why });
+            ("400 Bad Request", error)
+        };
+        match target {
+            "TrentService.Encrypt" => (
+                "200 OK",
+                json!({ "CiphertextBlob": request["Plaintext"], "KeyId": KEY }),
+            ),
+            "TrentService.Decrypt" => {
+                let recipient = &request["Recipient"];
+                if recipient.is_null() {
+                    return denied("no attestation document");
+                }
+                if recipient["KeyEncryptionAlgorithm"] != "RSAES_OAEP_SHA_256" {
+                    return denied("unexpected key encryption algorithm");
+                }
+                let public_key = blob(&recipient["AttestationDocument"]);
+                let answer = seal_for(&public_key, &blob(&request["CiphertextBlob"]));
+                (
+                    "200 OK",
+                    json!({ "CiphertextForRecipient": BASE64.encode(answer), "KeyId": KEY }),
+                )
+            }
+            other => panic!("unexpected KMS call {other}"),
+        }
+    }
+
+    fn unwrapper(url: &str, attester: Option<Box<dyn Attester>>) -> KmsUnwrapper {
+        let config = aws_sdk_kms::Config::builder()
+            .behavior_version(BehaviorVersion::latest())
+            .region(Region::new("eu-west-3"))
+            .credentials_provider(Credentials::new("fake", "fake", None, None, "test"))
+            .endpoint_url(url)
+            .build();
+        KmsUnwrapper::new(Client::from_conf(config), KEY.into(), attester)
+    }
+
+    #[tokio::test]
+    async fn an_attested_enclave_opens_what_kms_sealed() {
+        let url = fake_kms().await;
+        let operator = unwrapper(&url, None);
+        let enclave = unwrapper(&url, Some(Box::new(FakeAttester)));
+
+        let keys = Keys::generate();
+        let sealed = SealedKey::seal(keys.secret_key(), &operator).await.unwrap();
+        let opened = sealed.open(&enclave).await.unwrap();
+
+        assert_eq!(opened.secret_bytes(), keys.secret_key().secret_bytes());
+        assert_eq!((sealed.kek.as_str(), enclave.name()), ("aws-kms", "nitro"));
+    }
+
+    #[tokio::test]
+    async fn without_attestation_kms_releases_nothing() {
+        let url = fake_kms().await;
+        let operator = unwrapper(&url, None);
+
+        let sealed = SealedKey::seal(Keys::generate().secret_key(), &operator)
+            .await
+            .unwrap();
+        let err = sealed.open(&operator).await.unwrap_err();
+
+        assert!(
+            format!("{err:#}").contains("AccessDeniedException"),
+            "{err:#}"
+        );
     }
 }
