@@ -20,7 +20,7 @@ nostr-remote-signer-core = { path = "../nostr-remote-signer-core", version = "0.
 nostr                    = { workspace = true }
 nostr-connect            = { workspace = true }
 nostr-sdk                = { workspace = true }
-tokio                    = { workspace = true }
+tokio                    = { workspace = true, features = ["io-util", "net"] }
 anyhow                   = { workspace = true }
 tracing                  = { workspace = true }
 tracing-subscriber       = { workspace = true }
@@ -45,6 +45,12 @@ reqwest = { workspace = true }
 [features]
 default = []
 aws     = ["dep:aws-sdk-kms", "dep:aws-config", "dep:aws-lc-rs"]
+# A stand-in for KMS, for the vault under QEMU: dev identities only.
+fake-kms = ["aws"]
+
+[[example]]
+name = "fake_kms"
+required-features = ["fake-kms"]
 
 [[bin]]
 name = "leak_probe"

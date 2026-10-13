@@ -5,6 +5,7 @@
 
 pub const BYTES: u8 = 2;
 pub const TEXT: u8 = 3;
+pub const ARRAY: u8 = 4;
 pub const MAP: u8 = 5;
 pub const NULL: u8 = 0xf6;
 
@@ -64,7 +65,7 @@ impl<'a> Cbor<'a> {
                     Cbor::Text(std::str::from_utf8(bytes).ok()?)
                 }
             }
-            4 => {
+            ARRAY => {
                 let mut items = Vec::new();
                 for _ in 0..arg {
                     items.push(Self::read(&mut rest, depth + 1)?);

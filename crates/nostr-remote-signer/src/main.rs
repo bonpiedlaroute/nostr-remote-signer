@@ -37,11 +37,7 @@ struct IdentityFiles {
 }
 
 async fn load_sealed(path: &str, unwrapper: &dyn KeyUnwrapper) -> Result<Keys> {
-    let raw = std::fs::read_to_string(path)
-        .with_context(|| format!("cannot read sealed key at {path}"))?;
-    let sealed: SealedKey =
-        serde_json::from_str(&raw).with_context(|| format!("{path} is not a valid sealed key"))?;
-
+    let sealed = SealedKey::read(path)?;
     tracing::info!(kek = %sealed.kek, path = %path, "opening sealed key");
     Ok(Keys::new(sealed.open(unwrapper).await?))
 }

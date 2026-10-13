@@ -237,8 +237,8 @@ impl<'a> Ber<'a> {
     }
 }
 
-/// KMS's side of an attested `Decrypt`, for the tests of this crate.
-#[cfg(test)]
+/// KMS's side of an attested `Decrypt`, for the tests and the fake KMS.
+#[cfg(any(test, feature = "fake-kms"))]
 pub(crate) mod testing {
     use aws_lc_rs::cipher::PaddedBlockEncryptingKey;
     use aws_lc_rs::rand::{SecureRandom, SystemRandom};
@@ -311,13 +311,14 @@ pub(crate) mod testing {
     }
 
     /// What KMS does with an attested Decrypt: a fresh content key wrapped for the
-    /// recipient's public key, the plaintext under that key, in two chunks.
-    pub(crate) fn seal_for(public_key: &[u8], plaintext: &[u8]) -> Vec<u8> {
+    /// recipient's public key, the plaintext under that key, in two chunks. `None` when
+    /// the public key is not an RSA key.
+    pub(crate) fn seal_for(public_key: &[u8], plaintext: &[u8]) -> Option<Vec<u8>> {
         let mut content_key = [0u8; 32];
-        SystemRandom::new().fill(&mut content_key).unwrap();
+        SystemRandom::new().fill(&mut content_key).ok()?;
 
-        let public = PublicEncryptingKey::from_der(public_key).unwrap();
-        let public = OaepPublicEncryptingKey::new(public).unwrap();
+        let public = PublicEncryptingKey::from_der(public_key).ok()?;
+        let public = OaepPublicEncryptingKey::new(public).ok()?;
         let mut encrypted_key = vec![0; public.ciphertext_size()];
         let encrypted_key = public
             .encrypt(
@@ -326,16 +327,16 @@ pub(crate) mod testing {
                 &mut encrypted_key,
                 None,
             )
-            .unwrap();
+            .ok()?;
 
-        let cipher = UnboundCipherKey::new(&AES_256, &content_key).unwrap();
-        let cipher = PaddedBlockEncryptingKey::cbc_pkcs7(cipher).unwrap();
+        let cipher = UnboundCipherKey::new(&AES_256, &content_key).ok()?;
+        let cipher = PaddedBlockEncryptingKey::cbc_pkcs7(cipher).ok()?;
         let mut content = plaintext.to_vec();
-        let context = cipher.encrypt(&mut content).unwrap();
-        let iv: &[u8] = (&context).try_into().unwrap();
+        let context = cipher.encrypt(&mut content).ok()?;
+        let iv: &[u8] = (&context).try_into().ok()?;
 
         let (first, second) = content.split_at(16);
-        kms_shaped(&[7; 32], encrypted_key, iv, &[first, second])
+        Some(kms_shaped(&[7; 32], encrypted_key, iv, &[first, second]))
     }
 }
 
@@ -406,7 +407,7 @@ mod tests {
         let recipient = Recipient::generate().unwrap();
         let data_key = [42u8; 32];
         let opened = recipient
-            .open(&seal_for(recipient.public_key(), &data_key))
+            .open(&seal_for(recipient.public_key(), &data_key).unwrap())
             .unwrap();
         assert_eq!(*opened, data_key);
     }
@@ -414,7 +415,7 @@ mod tests {
     #[test]
     fn another_key_cannot_open_it() {
         let recipient = Recipient::generate().unwrap();
-        let answer = seal_for(recipient.public_key(), &[42; 32]);
+        let answer = seal_for(recipient.public_key(), &[42; 32]).unwrap();
         let other = Recipient::generate().unwrap();
         assert!(matches!(other.open(&answer), Err(KeyUnwrapError::Invalid)));
     }

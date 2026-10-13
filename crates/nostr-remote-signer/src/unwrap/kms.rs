@@ -150,108 +150,32 @@ impl KeyUnwrapper for KmsUnwrapper {
 #[cfg(test)]
 mod tests {
     use aws_sdk_kms::config::{BehaviorVersion, Credentials, Region};
-    use base64::Engine as _;
-    use base64::engine::general_purpose::STANDARD as BASE64;
     use nostr::key::Keys;
-    use serde_json::{Value, json};
-    use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
-    use tokio::net::{TcpListener, TcpStream};
+    use tokio::net::TcpListener;
 
     use super::*;
     use crate::sealed::SealedKey;
-    use crate::unwrap::recipient::testing::seal_for;
+    use crate::unwrap::fake_kms::{self, Pcr};
 
     const KEY: &str = "arn:aws:kms:eu-west-3:111122223333:key/fake";
+    const IMAGE: Pcr = [7; 48];
 
-    /// Hands the public key over as the "document": the fake KMS reads it back as is.
+    /// An enclave measured as `.0`, attesting as QEMU's NSM does.
     #[derive(Debug)]
-    struct FakeAttester;
+    struct FakeAttester(Pcr);
 
     impl Attester for FakeAttester {
         fn attest(&self, public_key: &[u8]) -> Result<Vec<u8>, KeyUnwrapError> {
-            Ok(public_key.to_vec())
+            Ok(fake_kms::document(public_key, &self.0))
         }
     }
 
-    /// KMS under the key policy of D2-4: `Encrypt` for anyone, `Decrypt` only when attested.
-    /// Its "wrapping" is the identity, which is enough to tell the two paths apart.
-    async fn fake_kms() -> String {
+    /// KMS under a key policy that admits `IMAGE`.
+    async fn kms() -> String {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let url = format!("http://{}", listener.local_addr().unwrap());
-        tokio::spawn(async move {
-            loop {
-                let (stream, _) = listener.accept().await.unwrap();
-                tokio::spawn(serve(stream));
-            }
-        });
+        tokio::spawn(fake_kms::serve(listener, Some(IMAGE)));
         url
-    }
-
-    async fn serve(stream: TcpStream) {
-        let mut stream = BufReader::new(stream);
-        loop {
-            let (mut target, mut len) = (String::new(), 0);
-            loop {
-                let mut line = String::new();
-                if stream.read_line(&mut line).await.unwrap_or(0) == 0 {
-                    return;
-                }
-                let line = line.trim_end();
-                if line.is_empty() {
-                    break;
-                }
-                if let Some((name, value)) = line.split_once(':') {
-                    match name.to_ascii_lowercase().as_str() {
-                        "x-amz-target" => target = value.trim().to_string(),
-                        "content-length" => len = value.trim().parse().unwrap(),
-                        _ => {}
-                    }
-                }
-            }
-            let mut body = vec![0; len];
-            stream.read_exact(&mut body).await.unwrap();
-
-            let (status, reply) = answer(&target, &serde_json::from_slice(&body).unwrap());
-            let reply = reply.to_string();
-            let head = format!(
-                "HTTP/1.1 {status}\r\ncontent-type: application/x-amz-json-1.1\r\n\
-                 content-length: {}\r\n\r\n",
-                reply.len()
-            );
-            let stream = stream.get_mut();
-            stream.write_all(head.as_bytes()).await.unwrap();
-            stream.write_all(reply.as_bytes()).await.unwrap();
-        }
-    }
-
-    fn answer(target: &str, request: &Value) -> (&'static str, Value) {
-        let blob = |v: &Value| BASE64.decode(v.as_str().unwrap()).unwrap();
-        let denied = |why: &str| {
-            let error = json!({ "__type": "AccessDeniedException", "message": why });
-            ("400 Bad Request", error)
-        };
-        match target {
-            "TrentService.Encrypt" => (
-                "200 OK",
-                json!({ "CiphertextBlob": request["Plaintext"], "KeyId": KEY }),
-            ),
-            "TrentService.Decrypt" => {
-                let recipient = &request["Recipient"];
-                if recipient.is_null() {
-                    return denied("no attestation document");
-                }
-                if recipient["KeyEncryptionAlgorithm"] != "RSAES_OAEP_SHA_256" {
-                    return denied("unexpected key encryption algorithm");
-                }
-                let public_key = blob(&recipient["AttestationDocument"]);
-                let answer = seal_for(&public_key, &blob(&request["CiphertextBlob"]));
-                (
-                    "200 OK",
-                    json!({ "CiphertextForRecipient": BASE64.encode(answer), "KeyId": KEY }),
-                )
-            }
-            other => panic!("unexpected KMS call {other}"),
-        }
     }
 
     fn unwrapper(url: &str, attester: Option<Box<dyn Attester>>) -> KmsUnwrapper {
@@ -266,9 +190,9 @@ mod tests {
 
     #[tokio::test]
     async fn an_attested_enclave_opens_what_kms_sealed() {
-        let url = fake_kms().await;
+        let url = kms().await;
         let operator = unwrapper(&url, None);
-        let enclave = unwrapper(&url, Some(Box::new(FakeAttester)));
+        let enclave = unwrapper(&url, Some(Box::new(FakeAttester(IMAGE))));
 
         let keys = Keys::generate();
         let sealed = SealedKey::seal(keys.secret_key(), &operator).await.unwrap();
@@ -279,18 +203,23 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn without_attestation_kms_releases_nothing() {
-        let url = fake_kms().await;
+    async fn kms_releases_nothing_without_attestation_or_to_another_image() {
+        let url = kms().await;
         let operator = unwrapper(&url, None);
+        let other_image = unwrapper(&url, Some(Box::new(FakeAttester([8; 48]))));
 
         let sealed = SealedKey::seal(Keys::generate().secret_key(), &operator)
             .await
             .unwrap();
-        let err = sealed.open(&operator).await.unwrap_err();
-
-        assert!(
-            format!("{err:#}").contains("AccessDeniedException"),
-            "{err:#}"
-        );
+        for (caller, why) in [
+            (&operator, "no attestation document"),
+            (&other_image, "the key policy admits PCR0 0707"),
+        ] {
+            let err = format!("{:#}", sealed.open(caller).await.unwrap_err());
+            assert!(
+                err.contains("AccessDeniedException") && err.contains(why),
+                "{err}"
+            );
+        }
     }
 }

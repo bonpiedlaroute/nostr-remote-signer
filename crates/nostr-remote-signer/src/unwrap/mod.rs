@@ -5,6 +5,8 @@
 
 pub mod passphrase;
 
+#[cfg(all(feature = "aws", any(test, feature = "fake-kms")))]
+pub mod fake_kms;
 #[cfg(feature = "aws")]
 pub mod kms;
 #[cfg(feature = "aws")]

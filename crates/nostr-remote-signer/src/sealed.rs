@@ -33,6 +33,13 @@ pub struct SealedKey {
 }
 
 impl SealedKey {
+    /// A sealed-key file, as the `seal` example writes it.
+    pub fn read(path: &str) -> Result<Self> {
+        let raw = std::fs::read_to_string(path)
+            .with_context(|| format!("cannot read sealed key at {path}"))?;
+        serde_json::from_str(&raw).with_context(|| format!("{path} is not a valid sealed key"))
+    }
+
     /// Seal a secret key. Run offline, once per identity.
     pub async fn seal(secret: &SecretKey, unwrapper: &dyn KeyUnwrapper) -> Result<Self> {
         let dek = XChaCha20Poly1305::generate_key(&mut OsRng);
