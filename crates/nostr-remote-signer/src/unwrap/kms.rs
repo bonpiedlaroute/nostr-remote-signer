@@ -47,7 +47,9 @@ impl KmsUnwrapper {
 
     pub async fn from_env(attester: Option<Box<dyn Attester>>) -> Result<Self, KeyUnwrapError> {
         let key_id = std::env::var("BUNKER_KMS_KEY_ID")
-            .map_err(|_| KeyUnwrapError::Configuration("BUNKER_KMS_KEY_ID is not set".into()))?;
+            .ok()
+            .filter(|id| !id.is_empty())
+            .ok_or_else(|| KeyUnwrapError::Configuration("BUNKER_KMS_KEY_ID is not set".into()))?;
         let config = aws_config::load_defaults(aws_config::BehaviorVersion::latest()).await;
         Ok(Self::new(Client::new(&config), key_id, attester))
     }

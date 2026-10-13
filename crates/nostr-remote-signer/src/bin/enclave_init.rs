@@ -1,13 +1,16 @@
 //! The enclave's entrypoint: provide what an enclave lacks, then run the vault.
 //!
 //! An enclave has no network and no disk, only vsock to its parent. This brings the
-//! loopback interface up, fetches the passphrase and the agents from the parent, bridges
-//! the transport relay's TCP port to the parent, then runs the given program and exits
-//! with it. Meanwhile, it keeps the program's agents in step with the parent's.
+//! loopback interface up, fetches the boot secrets and the agents from the parent, bridges
+//! the transport relay and KMS to the parent, then runs the given program and exits with
+//! it. Meanwhile, it keeps the program's agents in step with the parent's.
 //!
 //! Usage (the image's ENTRYPOINT): enclave-init /bunkerd
 
 use std::{fs, io};
+
+use anyhow::{Result, bail};
+use zeroize::Zeroizing;
 
 #[cfg(target_os = "linux")]
 fn main() -> anyhow::Result<()> {
@@ -20,11 +23,33 @@ fn main() {
     std::process::exit(1);
 }
 
-/// `echo` adds a newline; a passphrase never ends with one.
+/// What the parent may hand the vault at boot: its root of trust's secrets, and nothing
+/// else. Any other variable would let the parent reconfigure a measured image.
+/// Must match enclave/parent.sh.
+const BOOT_ENV: [&str; 4] = [
+    "BUNKER_PASSPHRASE",
+    "AWS_ACCESS_KEY_ID",
+    "AWS_SECRET_ACCESS_KEY",
+    "AWS_SESSION_TOKEN",
+];
+
+/// `NAME=value` lines, each NAME in `BOOT_ENV`.
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
-fn trim_passphrase(raw: &mut String) {
-    let len = raw.trim_end_matches(['\n', '\r']).len();
-    raw.truncate(len);
+fn parse_boot_env(raw: &str) -> Result<Vec<(&'static str, Zeroizing<String>)>> {
+    let mut env = Vec::new();
+    for line in raw.lines().filter(|l| !l.is_empty()) {
+        let Some((name, value)) = line.split_once('=') else {
+            bail!("the parent sent a line that is not NAME=value");
+        };
+        let Some(name) = BOOT_ENV.into_iter().find(|n| *n == name) else {
+            bail!("the parent may not set {name}");
+        };
+        env.push((name, Zeroizing::new(value.to_string())));
+    }
+    if env.is_empty() {
+        bail!("the parent sent no boot secret");
+    }
+    Ok(env)
 }
 
 /// What the vault gets when the parent serves no list: no agent at all.
@@ -53,15 +78,15 @@ fn sync_agents(served: io::Result<Vec<u8>>, path: &str, current: &mut Vec<u8>) -
 
 #[cfg(target_os = "linux")]
 mod enclave {
+    use std::fs;
     use std::io::{self, Read};
     use std::net::{Shutdown, TcpListener, TcpStream};
     use std::process::Command;
     use std::thread;
     use std::time::Duration;
 
-    use anyhow::{Context, Result, bail};
+    use anyhow::{Context, Result};
     use nostr_remote_signer::access::agents_path;
-    use nostr_remote_signer::unwrap::passphrase::PASSPHRASE_ENV;
     use vsock::{VsockAddr, VsockStream};
     use zeroize::Zeroizing;
 
@@ -70,10 +95,14 @@ mod enclave {
     /// The parent instance, as seen from any Nitro enclave.
     const PARENT_CID: u32 = 3;
     /// Must match enclave/parent.sh.
-    const PASSPHRASE_PORT: u32 = 7000;
+    const BOOT_ENV_PORT: u32 = 7000;
     const AGENTS_PORT: u32 = 7002;
     /// The relay's TCP port inside the enclave, and the vsock port to the parent.
     const RELAY_PORT: u16 = 7777;
+    /// KMS, as the vault's SDK reaches it: https on 127.0.0.1 (see `kms_hosts`), then
+    /// this vsock port to the parent.
+    const KMS_TCP_PORT: u16 = 443;
+    const KMS_PORT: u32 = 8000;
     /// A change on the parent reaches the vault within this.
     const AGENTS_POLL: Duration = Duration::from_secs(1);
 
@@ -90,7 +119,8 @@ mod enclave {
 
         loopback_up().context("cannot bring the loopback interface up")?;
 
-        let passphrase = fetch_passphrase(parent)?;
+        let boot_env = fetch_boot_env(parent)?;
+        kms_hosts().context("cannot write /etc/hosts")?;
 
         let agents_addr = VsockAddr::new(parent, AGENTS_PORT);
         let agents_path = agents_path();
@@ -98,9 +128,11 @@ mod enclave {
         sync_agents(fetch(&agents_addr), &agents_path, &mut agents)
             .with_context(|| format!("cannot write the agents to {agents_path}"))?;
 
-        let listener = TcpListener::bind(("127.0.0.1", RELAY_PORT))
-            .context("cannot listen for the relay bridge")?;
-        thread::spawn(move || bridge(listener, VsockAddr::new(parent, RELAY_PORT.into())));
+        for (tcp, vsock) in [(RELAY_PORT, RELAY_PORT.into()), (KMS_TCP_PORT, KMS_PORT)] {
+            let listener = TcpListener::bind(("127.0.0.1", tcp))
+                .with_context(|| format!("cannot listen on 127.0.0.1:{tcp}"))?;
+            thread::spawn(move || bridge(listener, VsockAddr::new(parent, vsock)));
+        }
 
         // Inherited across exec: until the vault installs its handler, which it does before
         // reading the agents, a SIGHUP is ignored instead of killing it.
@@ -108,11 +140,11 @@ mod enclave {
         unsafe { libc::signal(libc::SIGHUP, libc::SIG_IGN) };
         let mut vault = Command::new(&program)
             .args(args)
-            .env(PASSPHRASE_ENV, passphrase.as_str())
+            .envs(boot_env.iter().map(|(name, value)| (name, value.as_str())))
             .spawn()
             .with_context(|| format!("cannot run {program}"))?;
         // Wiped now: process::exit runs no destructor.
-        drop(passphrase);
+        drop(boot_env);
 
         let pid = vault.id() as libc::pid_t;
         thread::spawn(move || {
@@ -158,10 +190,10 @@ mod enclave {
         }
     }
 
-    /// Connect to the parent, read the passphrase to EOF. The parent may not be listening
-    /// yet when the enclave boots: retry for up to five minutes.
-    fn fetch_passphrase(parent: u32) -> Result<Zeroizing<String>> {
-        let addr = VsockAddr::new(parent, PASSPHRASE_PORT);
+    /// Connect to the parent, read its `NAME=value` lines to EOF. The parent may not be
+    /// listening yet when the enclave boots: retry for up to five minutes.
+    fn fetch_boot_env(parent: u32) -> Result<Vec<(&'static str, Zeroizing<String>)>> {
+        let addr = VsockAddr::new(parent, BOOT_ENV_PORT);
         let mut stream = None;
         for attempt in 0..600 {
             match VsockStream::connect(&addr) {
@@ -170,23 +202,30 @@ mod enclave {
                     break;
                 }
                 Err(_) if attempt == 0 => {
-                    eprintln!("waiting for the passphrase on vsock port {PASSPHRASE_PORT}");
+                    eprintln!("waiting for the boot secrets on vsock port {BOOT_ENV_PORT}");
                 }
                 Err(_) => {}
             }
             thread::sleep(Duration::from_millis(500));
         }
-        let mut stream = stream.context("the parent never served the passphrase")?;
+        let mut stream = stream.context("the parent never served the boot secrets")?;
 
         let mut raw = Zeroizing::new(String::new());
         stream
             .read_to_string(&mut raw)
-            .context("cannot read the passphrase")?;
-        super::trim_passphrase(&mut raw);
-        if raw.is_empty() {
-            bail!("the parent sent an empty passphrase");
+            .context("cannot read the boot secrets")?;
+        super::parse_boot_env(&raw)
+    }
+
+    /// The enclave has no DNS: KMS's name leads to the bridge on 127.0.0.1.
+    fn kms_hosts() -> io::Result<()> {
+        match std::env::var("AWS_REGION") {
+            Ok(region) => fs::write(
+                "/etc/hosts",
+                format!("127.0.0.1 localhost kms.{region}.amazonaws.com\n"),
+            ),
+            Err(_) => Ok(()),
         }
-        Ok(raw)
     }
 
     /// The parent sends its whole list on every connection, then closes.
@@ -230,16 +269,25 @@ mod tests {
     use super::*;
 
     #[test]
-    fn strips_what_echo_adds_and_nothing_else() {
-        for (raw, expected) in [
-            ("secret", "secret"),
-            ("secret\n", "secret"),
-            ("secret\r\n", "secret"),
-            ("  secret  ", "  secret  "),
+    fn the_parent_hands_over_secrets_and_nothing_else() {
+        let env = parse_boot_env("BUNKER_PASSPHRASE= a=b \r\n\nAWS_ACCESS_KEY_ID=AKIA\n").unwrap();
+        let env: Vec<_> = env.iter().map(|(n, v)| (*n, v.as_str())).collect();
+        assert_eq!(
+            env,
+            [
+                ("BUNKER_PASSPHRASE", " a=b "),
+                ("AWS_ACCESS_KEY_ID", "AKIA")
+            ]
+        );
+
+        for refused in [
+            "RUST_LOG=nostr_connect=debug\n",
+            "BUNKER_AGENTS=/tmp/agents.json\n",
+            "a raw passphrase\n",
+            "\n",
+            "",
         ] {
-            let mut s = raw.to_string();
-            trim_passphrase(&mut s);
-            assert_eq!(s, expected, "{raw:?}");
+            assert!(parse_boot_env(refused).is_err(), "{refused:?}");
         }
     }
 
