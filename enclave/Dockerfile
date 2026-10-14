@@ -14,6 +14,10 @@ COPY Cargo.toml Cargo.lock ./
 COPY crates ./crates
 RUN cargo build --release --locked -p nostr-remote-signer --features aws \
       --bin bunkerd --bin enclave-init
+# The parent's tools, for an EC2 parent instance (docker build --target build): not in the
+# enclave image.
+RUN cargo build --release --locked -p nostr-remote-signer \
+      --bin bunker-relay --bin journal-sink --example sign
 
 FROM scratch
 COPY --from=build /src/target/release/bunkerd /src/target/release/enclave-init /

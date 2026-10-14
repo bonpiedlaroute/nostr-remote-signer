@@ -8,16 +8,12 @@
 #   enclave/aws/vault-key.sh policy [pcr0]   print the key policy, change nothing
 #   enclave/aws/vault-key.sh destroy         the key goes after 7 days, the role at once
 #
-# AWS_REGION: eu-west-3 by default. BUNKER_AWS_NAME: the role, its instance profile and the
-# key's alias, bunker-vault-dev by default.
+# Region and names: see common.sh.
 set -euo pipefail
 
-REGION=${AWS_REGION:-eu-west-3}
-NAME=${BUNKER_AWS_NAME:-bunker-vault-dev}
+# shellcheck source=enclave/aws/common.sh
+. "$(dirname "$0")/common.sh"
 ALIAS=alias/$NAME
-
-aws() { command aws --region "$REGION" "$@"; }
-die() { echo "$*" >&2; exit 1; }
 
 key_arn() { aws kms describe-key --key-id "$ALIAS" --query KeyMetadata.Arn --output text; }
 
