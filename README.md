@@ -190,7 +190,7 @@ commit `953db4b` (2026-10-08). If anything here is outdated, please open an issu
 |---|---|---|
 | Product | Multi-tenant service: web UI, OAuth, teams, HTTP RPC alongside NIP-46 | One daemon for one operator's agents, configured by files |
 | Storage | PostgreSQL | Files |
-| Keys at rest | AES-256-GCM; master key from a file, AWS KMS or GCP KMS | Envelope: one data key per key, wrapped by a passphrase (AWS KMS in the library only) |
+| Keys at rest | AES-256-GCM; master key from a file, AWS KMS or GCP KMS | Envelope: one data key per key, wrapped by a passphrase or AWS KMS |
 | KMS calls | `Encrypt` / `Decrypt` on the payload | One unwrap per key, at boot |
 | Policy | Reusable permission policies, managed in the UI | One default-deny file |
 | Agent credentials | bcrypt-hashed connect secrets | SHA-256 of 256-bit random tokens |
@@ -198,7 +198,7 @@ commit `953db4b` (2026-10-08). If anything here is outdated, please open an issu
 | Admin audit | Yes | No admin surface |
 | Memory locking, core dumps | Not found in the code | `mlockall` (Linux), core dumps disabled |
 | Transport | Any relay; its documentation uses public ones | Its own relay with a DoS guard, or any relay |
-| Enclave attestation | No | Planned |
+| Enclave attestation | No | In progress: works under QEMU, the proof on AWS is pending |
 
 Keycast is the better choice for a hosted service with many users, a UI and team
 management. This project targets a narrower case: agents that sign with a key
