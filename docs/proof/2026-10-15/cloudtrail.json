@@ -1,0 +1,37 @@
+[
+  {
+    "eventTime": "2026-10-15T20:11:05Z",
+    "who": "arn:aws:sts::111122223333:assumed-role/bunker-vault-dev/i-0d2a500d68275b9d5",
+    "agent": "aws-cli/2.36.47",
+    "errorCode": "AccessDenied",
+    "image": null
+  },
+  {
+    "eventTime": "2026-10-15T20:15:00Z",
+    "who": "arn:aws:sts::111122223333:assumed-role/bunker-vault-dev/i-0d2a500d68275b9d5",
+    "agent": "aws-sdk-rust/1.3.11",
+    "errorCode": "AccessDenied",
+    "image": null
+  },
+  {
+    "eventTime": "2026-10-15T20:16:27Z",
+    "who": "arn:aws:sts::111122223333:assumed-role/bunker-vault-dev/i-0d2a500d68275b9d5",
+    "agent": "aws-sdk-rust/1.3.11",
+    "errorCode": null,
+    "image": "hEMf6praL8RZWLz4rOrl/9ON0WY0bqcdK95qP6jSs+LfXaGG5zPotFJwWpk3ndQp"
+  },
+  {
+    "eventTime": "2026-10-15T20:16:27Z",
+    "who": "arn:aws:sts::111122223333:assumed-role/bunker-vault-dev/i-0d2a500d68275b9d5",
+    "agent": "aws-sdk-rust/1.3.11",
+    "errorCode": null,
+    "image": "hEMf6praL8RZWLz4rOrl/9ON0WY0bqcdK95qP6jSs+LfXaGG5zPotFJwWpk3ndQp"
+  },
+  {
+    "eventTime": "2026-10-15T20:28:18Z",
+    "who": "arn:aws:sts::111122223333:assumed-role/AWSReservedSSO_AdministratorAccess_…/operator",
+    "agent": "aws-cli/2.38.1",
+    "errorCode": "AccessDenied",
+    "image": null
+  }
+]

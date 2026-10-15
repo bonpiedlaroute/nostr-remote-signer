@@ -35,7 +35,7 @@ Works with any NIP-46 client. Demonstrated against a self-hosted Buzz relay.
 
 | | |
 |---|---|
-| **Key custody** | Keys are sealed at rest by envelope encryption: a random data key (XChaCha20-Poly1305) wrapped by a root of trust, unwrapped once per key at boot. `bunkerd` uses a passphrase (`age`, scrypt) by default, or AWS KMS when built with `--features aws`. |
+| **Key custody** | Keys are sealed at rest by envelope encryption: a random data key (XChaCha20-Poly1305) wrapped by a root of trust, unwrapped once per key at boot. `bunkerd` uses a passphrase (`age`, scrypt) by default, or AWS KMS when built with `--features aws`. In an AWS Nitro Enclave, KMS releases the data keys to the measured image only ([proof](#proof-attested-key-release)). |
 | **Memory hygiene** | Core dumps disabled, all memory locked against swap (`mlockall`, Linux only: macOS does not implement it), secrets zeroized on drop, `Debug` output redacted. A test runs the binary and searches its whole output for the key. |
 | **Policy** | Default-deny allowlist of NIP-46 methods and event kinds (`policy.json`). |
 | **Rate limits** | Token buckets per caller and for the whole bunker, checked before anything else. |
@@ -173,12 +173,64 @@ In short:
   root of trust.
 - **Root on the vault host** gets the keys. Nostr signs with Schnorr (BIP-340), and no
   commodity KMS or HSM produces such signatures, so the key is in clear in the vault's
-  memory while it signs. An attested enclave would close this gap (see Roadmap).
+  memory while it signs. In an AWS Nitro Enclave, that memory is out of the host's reach
+  and KMS releases the key to the measured image only: root on the parent instance can no
+  longer decrypt it ([proof](#proof-attested-key-release)).
 - **Anyone watching the relay** sees who talks to the bunker and when, never what they say.
 - **A flood** cannot make the vault decrypt more than the relay's global rate. It can
   still deny service to legitimate agents while it lasts.
 
 The full model, with known limitations, is in [docs/threat-model.md](docs/threat-model.md).
+
+## Proof: attested key release
+
+The vault can run in an AWS Nitro Enclave. Its keys are then sealed with a KMS key whose
+policy lets only that enclave decrypt them: KMS checks the enclave's attestation document,
+signed by AWS, against the image measurement pinned in the policy (PCR0), and answers in a
+form only the enclave can open.
+
+On 2026-10-15, on an EC2 instance, with a dev identity:
+
+| Who asks KMS to decrypt the sealed key | Result |
+|---|---|
+| Root on the parent instance, with the instance's role | Refused |
+| The vault's image, started in debug mode, where its PCRs read as zeros | Refused |
+| The same image, without debug | Opens its keys; an agent gets an event signed |
+| An administrator of the AWS account | Refused |
+
+```text
+[root@ip-172-31-17-228 ~]# aws sts get-caller-identity --query Arn --output text
+arn:aws:sts::111122223333:assumed-role/bunker-vault-dev/i-0d2a500d68275b9d5
+[root@ip-172-31-17-228 ~]# aws kms decrypt --region eu-west-3 --ciphertext-blob fileb:///tmp/wrapped-dek
+aws: [ERROR]: An error occurred (AccessDeniedException) when calling the Decrypt operation: User: arn:aws:sts::111122223333:assumed-role/bunker-vault-dev/i-0d2a500d68275b9d5 is not authorized to perform: kms:Decrypt on resource: arn:aws:kms:eu-west-3:111122223333:key/4eb984c8-6e72-42ec-ad5d-9659f98f8c9f because no resource-based policy allows the kms:Decrypt action
+
+[ec2-user@ip-172-31-17-228 ~]$ nitro-cli run-enclave --eif-path vault-d2-5.eif --cpu-count 2 --memory 2048 \
+    --debug-mode --attach-console
+…
+Error: key unwrapper backend: service error: unhandled error (AccessDeniedException): …
+
+[ec2-user@ip-172-31-17-228 ~]$ nitro-cli run-enclave --eif-path vault-d2-5.eif --cpu-count 2 --memory 2048
+…
+[ec2-user@ip-172-31-17-228 ~]$ ./sign "$URI&secret=$(cat dev-agent.token)"
+…
+✅ event signed remotely
+…
+[ec2-user@ip-172-31-17-228 ~]$ tail -1 audit.log
+{"agent":"dev-agent",…,"decision":"approved",…,"kind":1,"method":"sign_event","reason":null}
+```
+
+The same PCR0 appears in the key policy in force, in `nitro-cli`'s measurement of the image,
+and in the attested `Decrypt` that CloudTrail recorded. The full transcript, the policy, the
+measurements and the CloudTrail events are in [docs/proof/2026-10-15](docs/proof/2026-10-15/),
+with the account ID masked. The scripts in [`enclave/aws/`](enclave/aws/) created the key, its
+policy and the instance.
+
+What this does not show:
+
+- **The build is not reproducible yet.** You can check that the policy, the image and
+  CloudTrail agree on one PCR0, not recompute that PCR0 from these sources.
+- **The AWS account's administrators can rewrite the key policy.** CloudTrail records every
+  change.
 
 ## Compared with Keycast
 
@@ -198,18 +250,18 @@ commit `953db4b` (2026-10-08). If anything here is outdated, please open an issu
 | Admin audit | Yes | No admin surface |
 | Memory locking, core dumps | Not found in the code | `mlockall` (Linux), core dumps disabled |
 | Transport | Any relay; its documentation uses public ones | Its own relay with a DoS guard, or any relay |
-| Enclave attestation | No | In progress: works under QEMU, the proof on AWS is pending |
+| Enclave attestation | No | AWS Nitro Enclaves: KMS releases the data keys to the measured image only ([proof](#proof-attested-key-release)) |
 
 Keycast is the better choice for a hosted service with many users, a UI and team
 management. This project targets a narrower case: agents that sign with a key
-they must never hold, where every signature has to be accountable, and where the
-next step is a key that even root on the vault host cannot read.
+they must never hold, where every signature has to be accountable, and where, in an
+enclave, even root on the host cannot decrypt the key.
 
 ## Roadmap
 
-- **Attested key release.** Run the vault in an AWS Nitro Enclave, with KMS releasing
-  the data key only to an image whose measurement is pinned in the key policy
-  (`kms:RecipientAttestation:ImageSha384`). Root on the host then cannot decrypt the key.
+- **A reproducible enclave build**, so that anyone can recompute the image's PCR0 from the
+  sources.
+- A guide to run the vault in an enclave, under QEMU and on EC2, and to reproduce the proof.
 - Hash-chained journal, for tamper evidence.
 - Known agent transport keys at the relay, so that a flood cannot starve registered agents.
 
@@ -217,7 +269,9 @@ next step is a key that even root on the vault host cannot read.
 
 The claim this project makes is **"the key never resides on an agent host"**. It does
 **not** claim "the key never leaves an HSM": no commodity KMS or HSM can produce a Nostr
-signature, so the Schnorr computation always happens in the vault's process.
+signature, so the Schnorr computation always happens in the vault's process. In an AWS
+Nitro Enclave, it adds that only the image whose measurement the KMS key policy pins can
+decrypt the key, and that root on the host cannot.
 
 Please report vulnerabilities privately, through GitHub's private vulnerability reporting
 on this repository.

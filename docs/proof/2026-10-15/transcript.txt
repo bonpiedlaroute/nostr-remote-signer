@@ -1,0 +1,308 @@
+Script started on 2026-10-15 20:09:18+00:00 [TERM="xterm-256color" TTY="/dev/pts/3" COLUMNS="117" LINES="30"]
+[ec2-user@ip-172-31-17-228 ~]$ sudo -i
+[root@ip-172-31-17-228 ~]# aws sts get-caller-identity --query Arn --output text
+arn:aws:sts::111122223333:assumed-role/bunker-vault-dev/i-0d2a500d68275b9d5
+[root@ip-172-31-17-228 ~]# jq -r .wrapped_dek ~ec2-user/identity.sealed.json | base64 -d > /tmp/wrapped-dek
+[root@ip-172-31-17-228 ~]# aws kms decrypt --region eu-west-3 --ciphertext-blob fileb:///tmp/wrapped-dek
+
+aws: [ERROR]: An error occurred (AccessDeniedException) when calling the Decrypt operation: User: arn:aws:sts::111122223333:assumed-role/bunker-vault-dev/i-0d2a500d68275b9d5 is not authorized to perform: kms:Decrypt on resource: arn:aws:kms:eu-west-3:111122223333:key/4eb984c8-6e72-42ec-ad5d-9659f98f8c9f because no resource-based policy allows the kms:Decrypt action
+[root@ip-172-31-17-228 ~]# exit
+logout
+[ec2-user@ip-172-31-17-228 ~]$ nitro-cli run-enclave --eif-path vault-d2-5.eif --cpu-count 2 --memory 2048 \
+    --debug-mode --attach-console
+Start allocating memory...
+Started enclave with enclave-cid: 16, memory: 2048 MiB, cpu-ids: [1, 3]
+{
+  "EnclaveName": "vault-d2-5",
+  "EnclaveID": "i-0d2a500d68275b9d5-enc1a14134239acfe2",
+  "ProcessID": 29027,
+  "EnclaveCID": 16,
+  "NumberOfCPUs": 2,
+  "CPUIDs": [
+    1,
+    3
+  ],
+  "MemoryMiB": 2048
+}
+Connecting to the console for enclave 16...
+Successfully connected to the console.
+[    0.000000] Linux version 4.14.256-209.484.amzn2.x86_64 (mockbuild@ip-10-0-50-84) (gcc version 7.3.1 20180712 (Red Hat 7.3.1-13) (GCC)) #1 SMP Tue Jan 11 21:47:36 UTC 2022
+[    0.000000] Command line: reboot=k panic=30 pci=off nomodules console=ttyS0 i8042.noaux i8042.nomux i8042.nopnp i8042.dumbkbd random.trust_cpu=on virtio_mmio.device=4K@0xd0000000:5 virtio_mmio.device=4K@0xd0001000:6
+[    0.000000] x86/fpu: Supporting XSAVE feature 0x001: 'x87 floating point registers'
+[    0.000000] x86/fpu: Supporting XSAVE feature 0x002: 'SSE registers'
+[    0.000000] x86/fpu: Supporting XSAVE feature 0x004: 'AVX registers'
+[    0.000000] x86/fpu: Supporting XSAVE feature 0x008: 'MPX bounds registers'
+[    0.000000] x86/fpu: Supporting XSAVE feature 0x010: 'MPX CSR'
+[    0.000000] x86/fpu: Supporting XSAVE feature 0x020: 'AVX-512 opmask'
+[    0.000000] x86/fpu: Supporting XSAVE feature 0x040: 'AVX-512 Hi256'
+[    0.000000] x86/fpu: Supporting XSAVE feature 0x080: 'AVX-512 ZMM_Hi256'
+[    0.000000] x86/fpu: Supporting XSAVE feature 0x200: 'Protection Keys User registers'
+[    0.000000] x86/fpu: xstate_offset[2]:  576, xstate_sizes[2]:  256
+[    0.000000] x86/fpu: xstate_offset[3]:  832, xstate_sizes[3]:   64
+[    0.000000] x86/fpu: xstate_offset[4]:  896, xstate_sizes[4]:   64
+[    0.000000] x86/fpu: xstate_offset[5]:  960, xstate_sizes[5]:   64
+[    0.000000] x86/fpu: xstate_offset[6]: 1024, xstate_sizes[6]:  512
+[    0.000000] x86/fpu: xstate_offset[7]: 1536, xstate_sizes[7]: 1024
+[    0.000000] x86/fpu: xstate_offset[9]: 2560, xstate_sizes[9]:    8
+[    0.000000] x86/fpu: Enabled xstate features 0x2ff, context size is 2568 bytes, using 'compacted' format.
+[    0.000000] e820: BIOS-provided physical RAM map:
+[    0.000000] BIOS-e820: [mem 0x0000000000000000-0x000000000009fbff] usable
+[    0.000000] BIOS-e820: [mem 0x0000000000100000-0x000000007f7ffffe] usable
+[    0.000000] NX (Execute Disable) protection: active
+[    0.000000] DMI not present or invalid.
+[    0.000000] Hypervisor detected: KVM
+[    0.000000] tsc: Fast TSC calibration using PIT
+[    0.000000] e820: last_pfn = 0x7f7ff max_arch_pfn = 0x400000000
+[    0.000000] MTRR: Disabled
+[    0.000000] x86/PAT: MTRRs disabled, skipping PAT initialization too.
+[    0.000000] CPU MTRRs all blank - virtualized system.
+[    0.000000] x86/PAT: Configuration [0-7]: WB  WT  UC- UC  WB  WT  UC- UC
+[    0.000000] found SMP MP-table at [mem 0x0009fc00-0x0009fc0f]
+[    0.000000] Scanning 1 areas for low memory corruption
+[    0.000000] Using GB pages for direct mapping
+[    0.000000] RAMDISK: [mem 0x02e2f000-0x0487bfff]
+[    0.000000] ACPI: Early table checksum verification disabled
+[    0.000000] ACPI BIOS Error (bug): A valid RSDP was not found (20170728/tbxfroot-244)
+[    0.000000] No NUMA configuration found
+[    0.000000] Faking a node at [mem 0x0000000000000000-0x000000007f7fefff]
+[    0.000000] NODE_DATA(0) allocated [mem 0x7f7dd000-0x7f7fefff]
+[    0.000000] kvm-clock: Using msrs 4b564d01 and 4b564d00
+[    0.000000] kvm-clock: cpu 0, msr 0:7f7db001, primary cpu clock
+[    0.000000] kvm-clock: using sched offset of 932869827 cycles
+[    0.000000] clocksource: kvm-clock: mask: 0xffffffffffffffff max_cycles: 0x1cd42e4dffb, max_idle_ns: 881590591483 ns
+[    0.000000] Zone ranges:
+[    0.000000]   DMA      [mem 0x0000000000001000-0x0000000000ffffff]
+[    0.000000]   DMA32    [mem 0x0000000001000000-0x000000007f7fefff]
+[    0.000000]   Normal   empty
+[    0.000000] Movable zone start for each node
+[    0.000000] Early memory node ranges
+[    0.000000]   node   0: [mem 0x0000000000001000-0x000000000009efff]
+[    0.000000]   node   0: [mem 0x0000000000100000-0x000000007f7fefff]
+[    0.000000] Initmem setup node 0 [mem 0x0000000000001000-0x000000007f7fefff]
+[    0.000000] Intel MultiProcessor Specification v1.4
+[    0.000000] MPTABLE: OEM ID: FC
+[    0.000000] MPTABLE: Product ID: 000000000000
+[    0.000000] MPTABLE: APIC at: 0xFEE00000
+[    0.000000] Processor #0 (Bootup-CPU)
+[    0.000000] Processor #1
+[    0.000000] IOAPIC[0]: apic_id 3, version 17, address 0xfec00000, GSI 0-23
+[    0.000000] Processors: 2
+[    0.000000] TSC deadline timer available
+[    0.000000] smpboot: Allowing 2 CPUs, 0 hotplug CPUs
+[    0.000000] PM: Registered nosave memory: [mem 0x00000000-0x00000fff]
+[    0.000000] PM: Registered nosave memory: [mem 0x0009f000-0x000fffff]
+[    0.000000] e820: [mem 0x7f7fffff-0xffffffff] available for PCI devices
+[    0.000000] Booting paravirtualized kernel on KVM
+[    0.000000] clocksource: refined-jiffies: mask: 0xffffffff max_cycles: 0xffffffff, max_idle_ns: 7645519600211568 ns
+[    0.000000] random: get_random_bytes called from start_kernel+0x94/0x493 with crng_init=0
+[    0.000000] setup_percpu: NR_CPUS:128 nr_cpumask_bits:128 nr_cpu_ids:2 nr_node_ids:1
+[    0.000000] percpu: Embedded 46 pages/cpu s149464 r8192 d30760 u1048576
+[    0.000000] KVM setup async PF for cpu 0
+[    0.000000] kvm-stealtime: cpu 0, msr 7f41a040
+[    0.000000] PV qspinlock hash table entries: 256 (order: 0, 4096 bytes)
+[    0.000000] Fallback order for Node 0: 0
+[    0.000000] Built 1 zonelists, mobility grouping on.  Total pages: 513960
+[    0.000000] Policy zone: DMA32
+[    0.000000] Kernel command line: reboot=k panic=30 pci=off nomodules console=ttyS0 i8042.noaux i8042.nomux i8042.nopnp i8042.dumbkbd random.trust_cpu=on virtio_mmio.device=4K@0xd0000000:5 virtio_mmio.device=4K@0xd0001000:6
+[    0.000000] PID hash table entries: 4096 (order: 3, 32768 bytes)
+[    0.000000] Memory: 2008704K/2088564K available (10252K kernel code, 760K rwdata, 1844K rodata, 1436K init, 2816K bss, 79860K reserved, 0K cma-reserved)
+[    0.000000] SLUB: HWalign=64, Order=0-3, MinObjects=0, CPUs=2, Nodes=1
+[    0.000000] Kernel/User page tables isolation: enabled
+[    0.004000] Hierarchical RCU implementation.
+[    0.004000] 	RCU restricting CPUs from NR_CPUS=128 to nr_cpu_ids=2.
+[    0.004000] RCU: Adjusting geometry for rcu_fanout_leaf=16, nr_cpu_ids=2
+[    0.004000] NR_IRQS: 4352, nr_irqs: 56, preallocated irqs: 16
+[    0.004000] Console: colour dummy device 80x25
+[    0.004000] console [ttyS0] enabled
+[    0.004000] tsc: Detected 2499.996 MHz processor
+[    0.004000] Calibrating delay loop (skipped) preset value.. 4999.99 BogoMIPS (lpj=9999984)
+[    0.004000] pid_max: default: 32768 minimum: 301
+[    0.004000] Security Framework initialized
+[    0.004000] Yama: becoming mindful.
+[    0.004000] SELinux:  Initializing.
+[    0.005086] Dentry cache hash table entries: 262144 (order: 9, 2097152 bytes)
+[    0.006715] Inode-cache hash table entries: 131072 (order: 8, 1048576 bytes)
+[    0.007656] Mount-cache hash table entries: 4096 (order: 3, 32768 bytes)
+[    0.008026] Mountpoint-cache hash table entries: 4096 (order: 3, 32768 bytes)
+[    0.009283] Last level iTLB entries: 4KB 64, 2MB 8, 4MB 8
+[    0.009988] Last level dTLB entries: 4KB 64, 2MB 0, 4MB 0, 1GB 4
+[    0.010769] Spectre V1 : Mitigation: usercopy/swapgs barriers and __user pointer sanitization
+[    0.012005] Spectre V2 : Mitigation: Full generic retpoline
+[    0.012732] Spectre V2 : Spectre v2 / SpectreRSB mitigation: Filling RSB on context switch
+[    0.013789] Spectre V2 : Enabling Restricted Speculation for firmware calls
+[    0.014692] Spectre V2 : mitigation: Enabling conditional Indirect Branch Prediction Barrier
+[    0.016003] Spectre V2 : User space: Mitigation: STIBP via seccomp and prctl
+[    0.016913] Speculative Store Bypass: Mitigation: Speculative Store Bypass disabled via prctl and seccomp
+[    0.018172] TAA: Mitigation: Clear CPU buffers
+[    0.018751] MDS: Mitigation: Clear CPU buffers
+[    0.019426] Freeing SMP alternatives memory: 32K
+[    0.021015] smpboot: Max logical packages: 2
+[    0.021841] x2apic enabled
+[    0.022470] Switched APIC routing to physical x2apic.
+[    0.024000] ..TIMER: vector=0x30 apic1=0 pin1=0 apic2=-1 pin2=-1
+[    0.024000] smpboot: CPU0: Intel(R) Xeon(R) Processor @ 2.50GHz (family: 0x6, model: 0x55, stepping: 0x4)
+[    0.024000] Performance Events: unsupported p6 CPU model 85 no PMU driver, software events only.
+[    0.024000] Hierarchical SRCU implementation.
+[    0.024000] NMI watchdog: Perf event create on CPU 0 failed with -2
+[    0.024004] NMI watchdog: Perf NMI watchdog permanently disabled
+[    0.024872] smp: Bringing up secondary CPUs ...
+[    0.025645] x86: Booting SMP configuration:
+[    0.026197] .... node  #0, CPUs:      #1
+[    0.004000] kvm-clock: cpu 1, msr 0:7f7db041, secondary cpu clock
+[    0.028667] KVM setup async PF for cpu 1
+[    0.028702] kvm-stealtime: cpu 1, msr 7f51a040
+[    0.029534] MDS CPU bug present and SMT on, data leak possible. See https://www.kernel.org/doc/html/latest/admin-guide/hw-vuln/mds.html for more details.
+[    0.032006] TAA CPU bug present and SMT on, data leak possible. See https://www.kernel.org/doc/html/latest/admin-guide/hw-vuln/tsx_async_abort.html for more details.
+[    0.033922] smp: Brought up 1 node, 2 CPUs
+[    0.034468] smpboot: Total of 2 processors activated (9999.98 BogoMIPS)
+[    0.035618] devtmpfs: initialized
+[    0.036094] x86/mm: Memory block size: 128MB
+[    0.036899] clocksource: jiffies: mask: 0xffffffff max_cycles: 0xffffffff, max_idle_ns: 7645041785100000 ns
+[    0.037386] futex hash table entries: 512 (order: 3, 32768 bytes)
+[    0.038454] NET: Registered protocol family 16
+[    0.040375] cpuidle: using governor ladder
+[    0.041112] cpuidle: using governor menu
+[    0.041905] PCI: Fatal: No config space access function found
+[    0.049818] HugeTLB registered 1.00 GiB page size, pre-allocated 0 pages
+[    0.050867] HugeTLB registered 2.00 MiB page size, pre-allocated 0 pages
+[    0.052054] ACPI: Interpreter disabled.
+[    0.052613] vgaarb: loaded
+[    0.052613] SCSI subsystem initialized
+[    0.053235] pps_core: LinuxPPS API ver. 1 registered
+[    0.054084] pps_core: Software ver. 5.3.6 - Copyright 2005-2007 Rodolfo Giometti <giometti@linux.it>
+[    0.055267] PTP clock support registered
+[    0.056549] dmi: Firmware registration failed.
+[    0.056761] PCI: System does not support PCI
+[    0.057436] NetLabel: Initializing
+[    0.057931] NetLabel:  domain hash size = 128
+[    0.058504] NetLabel:  protocols = UNLABELED CIPSOv4 CALIPSO
+[    0.059253] NetLabel:  unlabeled traffic allowed by default
+[    0.060615] clocksource: Switched to clocksource kvm-clock
+[    0.060813] VFS: Disk quotas dquot_6.6.0
+[    0.061350] VFS: Dquot-cache hash table entries: 512 (order 0, 4096 bytes)
+[    0.062284] pnp: PnP ACPI: disabled
+[    0.065248] NET: Registered protocol family 2
+[    0.065905] IP idents hash table entries: 32768 (order: 6, 262144 bytes)
+[    0.066992] TCP established hash table entries: 16384 (order: 5, 131072 bytes)
+[    0.067952] TCP bind hash table entries: 16384 (order: 6, 262144 bytes)
+[    0.069136] TCP: Hash tables configured (established 16384 bind 16384)
+[    0.070096] UDP hash table entries: 1024 (order: 3, 32768 bytes)
+[    0.070886] UDP-Lite hash table entries: 1024 (order: 3, 32768 bytes)
+[    0.071755] NET: Registered protocol family 1
+[    0.072667] RPC: Registered named UNIX socket transport module.
+[    0.073500] RPC: Registered udp transport module.
+[    0.074118] RPC: Registered tcp transport module.
+[    0.074735] RPC: Registered tcp NFSv4.1 backchannel transport module.
+[    0.075606] Unpacking initramfs...
+[    0.117644] Freeing initrd memory: 26932K
+[    0.118246] virtio-mmio: Registering device virtio-mmio.0 at 0xd0000000-0xd0000fff, IRQ 5.
+[    0.119351] virtio-mmio: Registering device virtio-mmio.1 at 0xd0001000-0xd0001fff, IRQ 6.
+[    0.120862] RAPL PMU: API unit is 2^-32 Joules, 3 fixed counters, 10737418240 ms ovfl timer
+[    0.121976] RAPL PMU: hw unit of domain pp0-core 2^-0 Joules
+[    0.122715] RAPL PMU: hw unit of domain package 2^-0 Joules
+[    0.123443] RAPL PMU: hw unit of domain dram 2^-16 Joules
+[    0.124215] clocksource: tsc: mask: 0xffffffffffffffff max_cycles: 0x24093623c91, max_idle_ns: 440795291220 ns
+[    0.125531] platform rtc_cmos: registered platform RTC device (no PNP device found)
+[    0.126939] Scanning for low memory corruption every 60 seconds
+[    0.128118] audit: initializing netlink subsys (disabled)
+[    0.129123] audit: type=2000 audit(1792095299.946:1): state=initialized audit_enabled=0 res=1
+[    0.130707] Initialise system trusted keyrings
+[    0.131489] Key type blacklist registered
+[    0.132100] workingset: timestamp_bits=36 max_order=19 bucket_order=0
+[    0.134287] zbud: loaded
+[    0.135192] squashfs: version 4.0 (2009/01/31) Phillip Lougher
+[    0.136297] NFS: Registering the id_resolver key type
+[    0.137020] Key type id_resolver registered
+[    0.137579] Key type id_legacy registered
+[    0.138110] nfs4filelayout_init: NFSv4 File Layout Driver Registering...
+[    0.141092] Key type asymmetric registered
+[    0.141657] Asymmetric key parser 'x509' registered
+[    0.142310] Block layer SCSI generic (bsg) driver version 0.4 loaded (major 252)
+[    0.143474] io scheduler noop registered (default)
+[    0.144217] io scheduler cfq registered
+[    0.145073] virtio-mmio virtio-mmio.0: Failed to enable 64-bit or 32-bit DMA.  Trying to continue, but this might not work.
+[    0.146694] virtio-mmio virtio-mmio.1: Failed to enable 64-bit or 32-bit DMA.  Trying to continue, but this might not work.
+[    0.148679] Serial: 8250/16550 driver, 1 ports, IRQ sharing disabled
+[    0.171923] serial8250: ttyS0 at I/O 0x3f8 (irq = 4, base_baud = 115200) is a U6_16550A
+[    0.174753] loop: module loaded
+[    0.175240] Loading iSCSI transport class v2.0-870.
+[    0.176139] iscsi: registered transport (tcp)
+[    0.176828] tun: Universal TUN/TAP device driver, 1.6
+[    0.177641] hidraw: raw HID events driver (C) Jiri Kosina
+[    0.178681] nf_conntrack version 0.5.0 (16384 buckets, 65536 max)
+[    0.179816] ip_tables: (C) 2000-2006 Netfilter Core Team
+[    0.180937] Initializing XFRM netlink socket
+[    0.181641] NET: Registered protocol family 10
+[    0.182792] Segment Routing with IPv6
+[    0.183329] ip6_tables: (C) 2000-2006 Netfilter Core Team
+[    0.184328] NET: Registered protocol family 17
+[    0.184930] Bridge firewalling registered
+[    0.185517] Key type dns_resolver registered
+[    0.186162] NET: Registered protocol family 40
+[    0.187588] sched_clock: Marking stable (186116947, 0)->(306285832, -120168885)
+[    0.189039] registered taskstats version 1
+[    0.189599] Loading compiled-in X.509 certificates
+[    0.190940] Loaded X.509 cert 'Build time autogenerated kernel key: 58bf34a4602fd51a9642ab73d9d76ca2c6727d1b'
+[    0.192318] zswap: loaded using pool lzo/zbud
+[    0.193204] Key type encrypted registered
+[    0.194979] Freeing unused kernel memory: 1436K
+[    0.208103] Write protecting the kernel read-only data: 14336k
+[    0.209541] Freeing unused kernel memory: 2012K
+[    0.210566] Freeing unused kernel memory: 204K
+[    0.211413] nsm: loading out-of-tree module taints kernel.
+[    0.212209] nsm: module verification failed: signature and/or required key missing - tainting kernel
+[    0.214159] NSM RNG: returning rand bytes = 16
+[    0.214912] NSM RNG: returning rand bytes = 64
+[    0.215690] random: fast init done
+[    0.216529] NSM RNG: returning rand bytes = 64
+[    0.218916] random: crng init done
+[    0.225438] NSM RNG: returning rand bytes = 64
+[    0.227485] NSM RNG: returning rand bytes = 64
+[    0.229421] NSM RNG: returning rand bytes = 64
+[    0.230970] NSM RNG: returning rand bytes = 64
+2026-10-15T20:15:00.058166Z  INFO nostr_remote_signer::hardening: process hardening applied core_dumps_disabled=true memory_locked=true
+2026-10-15T20:15:00.067334Z  INFO bunkerd: opening sealed key kek=aws-kms path=/etc/bunker/signer.sealed.json
+Error: key unwrapper backend: service error: unhandled error (AccessDeniedException): Error { code: "AccessDeniedException", message: "User: arn:aws:sts::111122223333:assumed-role/bunker-vault-dev/i-0d2a500d68275b9d5 is not authorized to perform: kms:Decrypt on resource: arn:aws:kms:eu-west-3:111122223333:key/4eb984c8-6e72-42ec-ad5d-9659f98f8c9f because no resource-based policy allows the kms:Decrypt action", aws_request_id: "f09bc583-c4bc-42ea-9f27-7cbe6476b580" } (ServiceError(ServiceError { source: Unhandled(Unhandled { source: ErrorMetadata { code: Some("AccessDeniedException"), message: Some("User: arn:aws:sts::111122223333:assumed-role/bunker-vault-dev/i-0d2a500d68275b9d5 is not authorized to perform: kms:Decrypt on resource: arn:aws:kms:eu-west-3:111122223333:key/4eb984c8-6e72-42ec-ad5d-9659f98f8c9f because no resource-based policy allows the kms:Decrypt action"), extras: Some({"aws_request_id": "f09bc583-c4bc-42ea-9f27-7cbe6476b580"}) }, meta: ErrorMetadata { code: Some("AccessDeniedException"), message: Some("User: arn:aws:sts::111122223333:assumed-role/bunker-vault-dev/i-0d2a500d68275b9d5 is not authorized to perform: kms:Decrypt on resource: arn:aws:kms:eu-west-3:111122223333:key/4eb984c8-6e72-42ec-ad5d-9659f98f8c9f because no resource-based policy allows the kms:Decrypt action"), extras: Some({"aws_request_id": "f09bc583-c4bc-42ea-9f27-7cbe6476b580"}) } }), raw: Response { status: StatusCode(400), headers: Headers { headers: {"x-amzn-requestid": HeaderValue { _private: H1("f09bc583-c4bc-42ea-9f27-7cbe6476b580") }, "cache-control": HeaderValue { _private: H1("no-cache, no-store, must-revalidate, private") }, "expires": HeaderValue { _private: H1("0") }, "pragma": HeaderValue { _private: H1("no-cache") }, "date": HeaderValue { _private: H1("Thu, 15 Oct 2026 20:15:00 GMT") }, "content-type": HeaderValue { _private: H1("application/x-amz-json-1.1") }, "content-length": HeaderValue { _private: H1("322") }, "connection": Heade[ E45 ] Enclave console read error. Such error appears when reading from a running enclave's console fails.
+
+For more details, please visit https://docs.aws.amazon.com/enclaves/latest/user/cli-errors.html#E45
+
+If you open a support ticket, please provide the error log found at "/var/log/nitro_enclaves/err2026-10-15T20:15:00.443142213+00:00.log"
+rValue { _private: H1("keep-alive") }} }, body: SdkBody { inner: Once(Some(b"{\"__type\":\"AccessDeniedException\",\"Message\":\"User: arn:aws:sts::111122223333:assumed-role/bunker-vault-dev/i-0d2a500d68275b9d5 is not authorized to perform: kms:Decrypt on resource: arn:aws:kms:eu-west-3:111122223333:key/4eb984c8-6e72-42ec-ad5d-9659f98f8c9f because no resource-based policy allows the kms:Decrypt action\"}")), retryable: true }, extensions: Extensions { extensions_02x: Extensions, ext[ec2-user@ip-172-31-17-228 ~]$
+[ec2-user@ip-172-31-17-228 ~]$ nitro-cli run-enclave --eif-path vault-d2-5.eif --cpu-count 2 --memory 2048
+Start allocating memory...
+Started enclave with enclave-cid: 17, memory: 2048 MiB, cpu-ids: [1, 3]
+{
+  "EnclaveName": "vault-d2-5",
+  "EnclaveID": "i-0d2a500d68275b9d5-enc1a141357644b0f8",
+  "ProcessID": 29100,
+  "EnclaveCID": 17,
+  "NumberOfCPUs": 2,
+  "CPUIDs": [
+    1,
+    3
+  ],
+  "MemoryMiB": 2048
+}
+[ec2-user@ip-172-31-17-228 ~]$ nitro-cli describe-enclaves | jq '.[0] | {State, Flags}'
+{
+  "State": "RUNNING",
+  "Flags": "NONE"
+}
+[ec2-user@ip-172-31-17-228 ~]$ URI='bunker://b86d2c960887877c116d8cf946c636aa0ef44d4d1ded9197b39e4d34d0c8f4a2?relay=ws://127.0.0.1:7777'
+[ec2-user@ip-172-31-17-228 ~]$ ./sign "$URI&secret=$(cat dev-agent.token)"
+caller transport key : npub16y0j9ah23af4s8avmfnadcacyf84jthklqveescteq3quu0jy6jqd2ycp4
+signed identity       : npub1lp2hecqs7wtt8lkayh2lhc6jfgvtvhyjwy3llfg399q88w3wfj3qa0dmzf
+
+✅ event signed remotely
+      id      : 943f6fdf31f790821fa92e48eb8a4b2f001a277208c3b6fdf454297d1ca1e70b
+      author  : npub1lp2hecqs7wtt8lkayh2lhc6jfgvtvhyjwy3llfg399q88w3wfj3qa0dmzf
+      kind    : 1
+
+{"id":"943f6fdf31f790821fa92e48eb8a4b2f001a277208c3b6fdf454297d1ca1e70b","pubkey":"f8557ce010f396b3fedd25d5fbe3524a18b65c927123ffa511294073ba2e4ca2","created_at":1792095633,"kind":1,"tags":[],"content":"signed by a key this process never held","sig":"0959f254a4b37121fee94bccae0dbec35b9fa568d0485abae984f1ffc778133dc8096ff6000f4fba48ab973e9405d9029b2e7e352c9a359d411f76673df4f180"}
+
+[ec2-user@ip-172-31-17-228 ~]$ tail -1 audit.log
+{"agent":"dev-agent","at":1792095633,"caller":"d11f22f6ea8f53581facda67d6e3b8224f592ef6f8199cc30bc8220e71f226a4","decision":"approved","identity":"f8557ce010f396b3fedd25d5fbe3524a18b65c927123ffa511294073ba2e4ca2","kind":1,"method":"sign_event","reason":null}
+[ec2-user@ip-172-31-17-228 ~]$ exit
+exit
+
+Script done on 2026-10-15 20:21:37+00:00 [COMMAND_EXIT_CODE="0"]

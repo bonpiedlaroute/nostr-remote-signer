@@ -1,0 +1,33 @@
+{
+  "Version" : "2012-10-17",
+  "Statement" : [ {
+    "Sid" : "Administer, never decrypt",
+    "Effect" : "Allow",
+    "Principal" : {
+      "AWS" : "arn:aws:iam::111122223333:root"
+    },
+    "Action" : [ "kms:CreateAlias", "kms:Describe*", "kms:Enable*", "kms:List*", "kms:Put*", "kms:Update*", "kms:Disable*", "kms:Get*", "kms:Delete*", "kms:TagResource", "kms:UntagResource", "kms:ScheduleKeyDeletion", "kms:CancelKeyDeletion", "kms:RotateKeyOnDemand" ],
+    "Resource" : "*"
+  }, {
+    "Sid" : "Seal",
+    "Effect" : "Allow",
+    "Principal" : {
+      "AWS" : "arn:aws:iam::111122223333:root"
+    },
+    "Action" : "kms:Encrypt",
+    "Resource" : "*"
+  }, {
+    "Sid" : "Open in the attested enclave only",
+    "Effect" : "Allow",
+    "Principal" : {
+      "AWS" : "arn:aws:iam::111122223333:role/bunker-vault-dev"
+    },
+    "Action" : "kms:Decrypt",
+    "Resource" : "*",
+    "Condition" : {
+      "StringEqualsIgnoreCase" : {
+        "kms:RecipientAttestation:ImageSha384" : "84431fea9ada2fc45958bcf8aceae5ffd38dd166346ea71d2bde6a3fa8d2b3e2df5da186e733e8b452705a99379dd429"
+      }
+    }
+  } ]
+}

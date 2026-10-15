@@ -8,7 +8,7 @@ What `nostr-remote-signer` protects, against whom, and what it does not protect.
 |---|---|
 | Custodied secret keys: the identities agents sign as | Sealed on the vault's disk; in clear only in `bunkerd`'s memory |
 | Transport keys, one per `bunker://` URI | Same |
-| Root of trust: the passphrase | `bunkerd`'s environment, for the life of the process |
+| Root of trust: a passphrase, or a KMS key | The passphrase: `bunkerd`'s environment, for the life of the process. A KMS key: in AWS KMS; in an enclave, its policy releases the data keys to the measured image only |
 | Agent tokens | On each agent host. The vault stores only their SHA-256 |
 | The journal | `audit.log` on the vault host |
 
@@ -94,7 +94,7 @@ Nostr signature. The passphrase is in the process's environment, readable throug
 Memory locking and disabled core dumps reduce **accidental** leaks to swap and crash
 dumps. They do nothing against a deliberate attacker with root.
 
-This is the gap an attested enclave closes (see below).
+This is the gap the enclave closes for root on the parent instance (see below).
 
 ### 6. Someone with write access to the journal
 
@@ -129,21 +129,38 @@ chain. If the journal has to serve as evidence, ship it off the host as it is wr
 - **The relay's limits are constants.** Keep its global rate in line with the vault's
   global rate in `policy.json`.
 
-## What an enclave would add
+## What the enclave adds
 
-Today, root on the vault host has the keys.
+`bunkerd` can run in an AWS Nitro Enclave: no persistent storage, no shell, no network
+except a vsock to its parent instance. The data keys are wrapped by a KMS key whose policy
+lets only the enclave decrypt them: KMS checks the enclave's attestation document, signed
+by AWS, against the image measurement pinned in the policy
+(`kms:RecipientAttestation:ImageSha384`, PCR0), and answers in a form only the enclave can
+open. Root on the parent instance can deny service and observe metadata, but cannot
+decrypt the keys.
 
-The plan is to run `bunkerd` in an AWS Nitro Enclave: no persistent storage, no shell,
-no network except a vsock to its parent instance. KMS would release the data key only
-to an enclave whose image measurement is pinned in the key policy
-(`kms:RecipientAttestation:ImageSha384`). Root on the parent instance could then deny
-service and observe metadata, but could no longer decrypt the key.
+Shown on EC2 on 2026-10-15 ([proof](proof/2026-10-15/)):
 
-What would still be true:
+| Who asks KMS to decrypt a sealed key | Result |
+|---|---|
+| Root on the parent instance, with the instance's role | Refused |
+| The same image in debug mode, where its PCRs read as zeros | Refused |
+| The image whose PCR0 the policy pins | Decrypts, inside the enclave |
+| An administrator of the AWS account, under that policy | Refused |
+
+What is still true:
 
 - the key is used in clear inside the enclave, so a bug in the enclave image is a bug
   in the trusted base;
-- whoever can change the KMS key policy decides which image gets the key;
-- the claim stays **"the key never resides on an agent host"**, and becomes **"and
-  only a publicly measurable image can decrypt it"**. It never becomes "the key never
-  leaves a HSM".
+- the trusted base now includes AWS: the Nitro hypervisor, which signs the attestation
+  documents, and KMS;
+- whoever can change the KMS key policy decides which image gets the key: the AWS
+  account's administrators. CloudTrail records every change;
+- the enclave build is not reproducible yet: a reader can check that the policy, the
+  image and CloudTrail agree on one PCR0, not recompute it from the sources;
+- the parent instance hands the enclave its AWS credentials at boot and relays its
+  traffic. It can withhold them, which denies service, but cannot read what they
+  protect;
+- the claim stays **"the key never resides on an agent host"**, and becomes **"and only
+  the image whose measurement the key policy pins can decrypt it"**. It never becomes "the
+  key never leaves an HSM".
