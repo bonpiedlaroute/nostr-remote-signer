@@ -40,7 +40,7 @@ launch() {
     (umask 077 && aws ec2 create-key-pair --key-name "$NAME" --key-type ed25519 \
         --query KeyMaterial --output text > "$KEY_FILE")
     sg=$(aws ec2 create-security-group --group-name "$NAME" \
-        --description "SSH to the vault's parent instance, from one address" \
+        --description "SSH to the vault parent instance, from one address" \
         --query GroupId --output text)
     aws ec2 authorize-security-group-ingress --group-id "$sg" \
         --protocol tcp --port 22 --cidr "$ip/32" >/dev/null
