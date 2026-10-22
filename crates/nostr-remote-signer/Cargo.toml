@@ -2,6 +2,9 @@
 name        = "nostr-remote-signer"
 description = "NIP-46 remote signer daemon with key custody, policy enforcement and audit."
 license     = "AGPL-3.0-or-later"
+readme      = "../../README.md"
+keywords    = ["nostr", "nip-46", "signer", "kms", "enclave"]
+categories  = ["cryptography", "authentication", "command-line-utilities"]
 version.workspace      = true
 edition.workspace      = true
 rust-version.workspace = true
@@ -47,6 +50,9 @@ default = []
 aws     = ["dep:aws-sdk-kms", "dep:aws-config", "dep:aws-lc-rs"]
 # A stand-in for KMS, for the vault under QEMU: dev identities only.
 fake-kms = ["aws"]
+
+[package.metadata.docs.rs]
+features = ["aws"]
 
 [[example]]
 name = "fake_kms"

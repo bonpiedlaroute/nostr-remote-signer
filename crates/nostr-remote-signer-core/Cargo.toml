@@ -1,7 +1,10 @@
 [package]
 name        = "nostr-remote-signer-core"
-description = "Protocol core for a NIP-46 remote signer: request model, policy trait, audit sink."
+description = "Traits for a NIP-46 remote signer: the root-of-trust boundary and the audit record."
 license     = "Apache-2.0"
+readme      = "README.md"
+keywords    = ["nostr", "nip-46", "signer", "custody", "audit"]
+categories  = ["cryptography", "authentication"]
 version.workspace      = true
 edition.workspace      = true
 rust-version.workspace = true
